@@ -36,11 +36,6 @@ def create_generator(state_dims, action_dims, code_dims):
 expert_data = read_expert()
 features = extract_features(expert_data)
 
-# standardize(features['states'])
-# standardize(features['actions'])
-# normalize(features['states'])
-# normalize(features['actions'])
-
 def train(train_states, train_actions, train_codes, val_states, val_actions, val_codes):
     train_states = tf.convert_to_tensor(train_states, dtype=tf.float32)
     train_actions = tf.convert_to_tensor(train_actions, dtype=tf.float32)
@@ -150,7 +145,7 @@ def simple_train():
     train_codes = shuffled_expert_codes[0:train_ratio, :]
     val_codes = shuffled_expert_codes[train_ratio:, :]
 
-    # standardize states/actions
+    # normalize states/actions
     state_normalizer = MinMaxScaler(feature_range=(-1,1))
     action_normalizer = MinMaxScaler(feature_range=(-1,1))
 

@@ -33,14 +33,6 @@ def get_coords(df, keep=2, start=3):
     
     return pd.concat(sk, axis=1)
 
-def standardize(array):
-    for i in range(array.shape[1]):
-        array[:,i] = (array[:,i] - array[:,i].mean()) / array[:,i].std()
-
-def normalize(array):
-    for i in range(array.shape[1]):
-        array[:,i] = (array[:,i] - array[:,i].min()) / (array[:,i].max() - array[:,i].min())
-
 def plot_feature(feature, type='actions'):
     plt.figure()
     plt.title('Expert '+type)
