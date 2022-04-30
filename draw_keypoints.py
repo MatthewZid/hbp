@@ -1,6 +1,6 @@
 import cv2
 from utils import *
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler
 import numpy as np
 
 IMAGEWIDTH = 640.0
