@@ -83,11 +83,13 @@ def extract_features(dataset):
 
     return features
 
-def extract_start_pos(dataset):
+def extract_start_pos(dataset, states):
     start_pos = []
+    pos = 0
     for key in dataset.keys():
-        start = get_coords(dataset[key]).iloc[0].to_numpy()
-        start_pos.append(start)
+        length = dataset[key].values.shape[0] - 1
+        start_pos.append(states[pos])
+        pos += length
     
     return np.array(start_pos)
 
