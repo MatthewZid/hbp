@@ -79,6 +79,10 @@ class InfoGAIL():
         # load data
         self.expert_data = read_expert()
         self.features = extract_features(self.expert_data)
+        state_scaler = MinMaxScaler(feature_range=(-1,1))
+        action_scaler = MinMaxScaler(feature_range=(-1,1))
+        self.features['states'] = state_scaler.fit_transform(self.features['states'])
+        self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
         self.start_pos = extract_start_pos(self.expert_data, self.features['states'])
 
         generator_weight_path = ''
@@ -159,6 +163,9 @@ class InfoGAIL():
             generated_actions = np.concatenate([traj['actions'] for traj in trajectories])
             generated_codes = np.concatenate([traj['codes'] for traj in trajectories])
             generated_oldactions = np.concatenate([traj['old_action_mus'] for traj in trajectories])
+
+            # minmax scaler
+            scaler = MinMaxScaler(feature_range=(-1,1))
 
             # train discriminator
             # Sample state-action pairs χi ~ τi and χΕ ~ τΕ with the same batch size
