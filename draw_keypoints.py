@@ -1,3 +1,4 @@
+import os
 import cv2
 from utils import *
 from sklearn.preprocessing import MinMaxScaler
@@ -6,9 +7,9 @@ import numpy as np
 IMAGEWIDTH = 640.0
 IMAGEHEIGHT = 480.0
 
-def draw_points(states, filename, width, height):
+def draw_points(states, filename, width, height, videopath='./expert_videos'):
     name = filename.split('.')[0]
-    video_out = cv2.VideoWriter(name+'.mp4', cv2.VideoWriter_fourcc(*'MP4V'), 6, (width, height))
+    video_out = cv2.VideoWriter(os.path.join(videopath, name+'.mp4'), cv2.VideoWriter_fourcc(*'MP4V'), 20, (width, height))
 
     for i in range(states.shape[0]):
         image = np.zeros((height, width, 3), dtype=np.uint8)
@@ -56,22 +57,26 @@ def draw_points(states, filename, width, height):
     video_out.release()
 
 expert_data = read_expert()
-features = extract_features(expert_data)
-state_normalizer = MinMaxScaler(feature_range=(0,1))
-state_normalizer.fit(features['states'])
-states = None
-
+state_feature = []
 for key in expert_data.keys():
+    coords = get_coords(expert_data[key]).to_numpy()
+    state_feature.append(coords)
+
+state_feature = np.concatenate(state_feature, axis=0)
+
+count = 100
+for key in expert_data.keys():
+    if count == 0: break
+    else:
         states = get_coords(expert_data[key]).to_numpy()
-        states = state_normalizer.transform(states)
 
         for i in range(1, states.shape[1], 2):
-            states[:, i] = states[:, i] * IMAGEHEIGHT
+            states[:, i] = ((states[:, i] - state_feature.min()) / (state_feature.max() - state_feature.min())) * IMAGEHEIGHT
         
         for i in range(0, states.shape[1], 2):
-            states[:, i] = states[:, i] * IMAGEWIDTH
+            states[:, i] = ((states[:, i] - state_feature.min()) / (state_feature.max() - state_feature.min())) * IMAGEWIDTH
         
         states = np.around(states).astype(int)
 
         draw_points(states, key, int(IMAGEWIDTH), int(IMAGEHEIGHT))
-        break
+        count -= 1
