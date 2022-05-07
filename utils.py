@@ -83,6 +83,62 @@ def extract_features(dataset):
 
     return features
 
+def extract_wrist_feature(dataset):
+    one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
+    features = {}
+    features['states'] = []
+    features['actions'] = []
+    features['codes'] = []
+
+    for key in dataset.keys():
+        states = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1)
+        actions = []
+
+        for i in range(len(states)-1):
+            actions.append(states.iloc[i+1] - states.iloc[i])
+
+        actions = pd.concat(actions, ignore_index=True, axis=1).T
+        states = states.drop(len(states.index)-1)
+
+        features['states'].append(states)
+        features['actions'].append(actions)
+        features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
+    
+    features['states'] = pd.concat(features['states'], ignore_index=True).to_numpy()
+    features['actions'] = pd.concat(features['actions'], ignore_index=True).to_numpy()
+    features['codes'] = np.concatenate(features['codes'], axis=0)
+
+    return features
+
+def extract_aperture_feature(dataset):
+    one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
+    features = {}
+    features['states'] = []
+    features['actions'] = []
+    features['codes'] = []
+
+    for key in dataset.keys():
+        thumb_tip = pd.concat([dataset[key].iloc[:,18], dataset[key].iloc[:,19]], axis=1)
+        index_tip = pd.concat([dataset[key].iloc[:,30], dataset[key].iloc[:,31]], axis=1)
+        states = np.sqrt(np.power(thumb_tip.iloc[:,0] - index_tip.iloc[:,0], 2) + np.power(thumb_tip.iloc[:,1] - index_tip.iloc[:,1], 2))
+        actions = []
+
+        for i in range(len(states)-1):
+            actions.append(states.iloc[i+1] - states.iloc[i])
+
+        actions = np.array(actions)
+        states = states.drop(len(states.index)-1)
+
+        features['states'].append(states)
+        features['actions'].append(actions)
+        features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
+    
+    features['states'] = pd.concat(features['states'], ignore_index=True).to_numpy()
+    features['actions'] = np.concatenate(features['actions'], axis=0)
+    features['codes'] = np.concatenate(features['codes'], axis=0)
+
+    return features
+
 def extract_start_pos(dataset, states):
     start_pos = []
     pos = 0
