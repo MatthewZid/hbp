@@ -91,21 +91,30 @@ def extract_wrist_feature(dataset):
     features['codes'] = []
 
     for key in dataset.keys():
-        states = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1)
+        points = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1).to_numpy()
+        window = np.zeros((5,2), dtype=np.float32)
+        for i in range(5):
+            window[i,0] = points[0,0]
+            window[i,1] = points[0,1]
+        states = [np.copy(window.flatten())]
         actions = []
 
-        for i in range(len(states)-1):
-            actions.append(states.iloc[i+1] - states.iloc[i])
+        for i in range(points.shape[0]-1):
+            actions.append(points[i+1,:] - points[i,:])
+            for j in range(4): window[j,:] = window[j+1,:]
+            window[4,:] = points[i+1,:]
+            states.append(np.copy(window.flatten()))
 
-        actions = pd.concat(actions, ignore_index=True, axis=1).T
-        states = states.drop(len(states.index)-1)
+        actions = np.array(actions, dtype=np.float32)
+        states = np.array(states, dtype=np.float32)
+        states = states[:-1,:]
 
         features['states'].append(states)
         features['actions'].append(actions)
         features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
     
-    features['states'] = pd.concat(features['states'], ignore_index=True).to_numpy()
-    features['actions'] = pd.concat(features['actions'], ignore_index=True).to_numpy()
+    features['states'] = np.concatenate(features['states'], axis=0)
+    features['actions'] = np.concatenate(features['actions'], axis=0)
     features['codes'] = np.concatenate(features['codes'], axis=0)
 
     return features
@@ -120,21 +129,30 @@ def extract_aperture_feature(dataset):
     for key in dataset.keys():
         thumb_tip = pd.concat([dataset[key].iloc[:,18], dataset[key].iloc[:,19]], axis=1)
         index_tip = pd.concat([dataset[key].iloc[:,30], dataset[key].iloc[:,31]], axis=1)
-        states = np.sqrt(np.power(thumb_tip.iloc[:,0] - index_tip.iloc[:,0], 2) + np.power(thumb_tip.iloc[:,1] - index_tip.iloc[:,1], 2))
+        total_coords = pd.concat([thumb_tip, index_tip], axis=1)
+
+        window = np.zeros((5,), dtype=np.float32)
+        apertures = np.sqrt(np.power(thumb_tip.iloc[:,0] - index_tip.iloc[:,0], 2) + np.power(thumb_tip.iloc[:,1] - index_tip.iloc[:,1], 2)).values
+        for i in range(5): window[i] = apertures[0]
+        states = [np.copy(window)]
         actions = []
 
-        for i in range(len(states)-1):
-            actions.append(states.iloc[i+1] - states.iloc[i])
+        for i in range(len(total_coords)-1):
+            actions.append(total_coords.iloc[i+1] - total_coords.iloc[i])
+            for j in range(4): window[j] = window[j+1]
+            window[4] = apertures[i+1]
+            states.append(np.copy(window))
 
-        actions = np.array(actions)
-        states = states.drop(len(states.index)-1)
+        actions = pd.concat(actions, ignore_index=True, axis=1).T
+        states = np.array(states, dtype=np.float32)
+        states = states[:-1]
 
         features['states'].append(states)
         features['actions'].append(actions)
         features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
     
-    features['states'] = pd.concat(features['states'], ignore_index=True).to_numpy()
-    features['actions'] = np.concatenate(features['actions'], axis=0)
+    features['states'] = np.concatenate(features['states'], axis=0)
+    features['actions'] = pd.concat(features['actions'], ignore_index=True).to_numpy()
     features['codes'] = np.concatenate(features['codes'], axis=0)
 
     return features
