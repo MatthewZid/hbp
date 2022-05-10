@@ -56,6 +56,33 @@ def plot_feature(feature, type='actions'):
     plt.savefig('./plots/'+type, dpi=100)
     plt.close()
 
+# def extract_features(dataset):
+#     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
+#     features = {}
+#     features['states'] = []
+#     features['actions'] = []
+#     features['codes'] = []
+
+#     for key in dataset.keys():
+#         states = get_coords(dataset[key])
+#         actions = []
+
+#         for i in range(len(states)-1):
+#             actions.append(states.iloc[i+1] - states.iloc[i])
+
+#         actions = pd.concat(actions, ignore_index=True, axis=1).T
+#         states = states.drop(len(states.index)-1)
+
+#         features['states'].append(states)
+#         features['actions'].append(actions)
+#         features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
+    
+#     features['states'] = pd.concat(features['states'], ignore_index=True).to_numpy()
+#     features['actions'] = pd.concat(features['actions'], ignore_index=True).to_numpy()
+#     features['codes'] = np.concatenate(features['codes'], axis=0)
+
+#     return features
+
 def extract_features(dataset):
     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
     features = {}
@@ -64,21 +91,43 @@ def extract_features(dataset):
     features['codes'] = []
 
     for key in dataset.keys():
-        states = get_coords(dataset[key])
+        wrist = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1)
+        thumb_tip = pd.concat([dataset[key].iloc[:,18], dataset[key].iloc[:,19]], axis=1)
+        index_tip = pd.concat([dataset[key].iloc[:,30], dataset[key].iloc[:,31]], axis=1)
+        apertures = pd.DataFrame(np.sqrt(np.power(thumb_tip.iloc[:,0] - index_tip.iloc[:,0], 2) + np.power(thumb_tip.iloc[:,1] - index_tip.iloc[:,1], 2)), columns=['Aperture'])
+        points = pd.concat([apertures, wrist], axis=1)
+        
+        # resample expert trajectory with linear interpolation for equal timestamp intervals (20ms)
+        points['td'] = pd.to_timedelta(dataset[key]['Time'].round(2), 's')
+        if points['td'].duplicated().sum() > 0:
+            points.at[points[points['td'].duplicated() == True].index.astype(int)[0], 'td'] = pd.to_timedelta(dataset[key][points['td'].duplicated() == True]['Time'].round(3), 's').iloc[0]
+        points = points.set_index('td')
+        interpolated = points.resample('20ms').interpolate(method='linear').to_numpy()
+    
+        window = np.zeros((5,interpolated.shape[1]), dtype=np.float32)
+        for i in range(5):
+            window[i,0] = interpolated[0,0]
+            window[i,1] = interpolated[0,1]
+            window[i,2] = interpolated[0,2]
+        states = [np.copy(window.flatten())]
         actions = []
 
-        for i in range(len(states)-1):
-            actions.append(states.iloc[i+1] - states.iloc[i])
-
-        actions = pd.concat(actions, ignore_index=True, axis=1).T
-        states = states.drop(len(states.index)-1)
+        for i in range(interpolated.shape[0]-1):
+            actions.append(interpolated[i+1,:] - interpolated[i,:])
+            for j in range(4): window[j,:] = window[j+1,:]
+            window[4,:] = interpolated[i+1,:]
+            states.append(np.copy(window.flatten()))
+        
+        actions = np.array(actions, dtype=np.float32)
+        states = np.array(states, dtype=np.float32)
+        states = states[:-1,:]
 
         features['states'].append(states)
         features['actions'].append(actions)
         features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
     
-    features['states'] = pd.concat(features['states'], ignore_index=True).to_numpy()
-    features['actions'] = pd.concat(features['actions'], ignore_index=True).to_numpy()
+    features['states'] = np.concatenate(features['states'], axis=0)
+    features['actions'] = np.concatenate(features['actions'], axis=0)
     features['codes'] = np.concatenate(features['codes'], axis=0)
 
     return features
