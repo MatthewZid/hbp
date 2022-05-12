@@ -83,7 +83,7 @@ class InfoGAIL():
         action_scaler = MinMaxScaler(feature_range=(-1,1))
         self.features['states'] = state_scaler.fit_transform(self.features['states'])
         self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
-        self.start_pos = extract_start_pos(self.expert_data, self.features['states'])
+        self.start_pos = extract_start_pos(self.expert_data)
 
         generator_weight_path = ''
         if resume_training:

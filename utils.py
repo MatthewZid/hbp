@@ -206,15 +206,36 @@ def extract_aperture_feature(dataset):
 
     return features
 
-def extract_start_pos(dataset, states):
+def extract_start_pos(dataset):
     start_pos = []
-    pos = 0
+
     for key in dataset.keys():
-        length = dataset[key].values.shape[0] - 1
-        start_pos.append(states[pos])
-        pos += length
+        wrist = [dataset[key].iloc[0,3], dataset[key].iloc[0,4]]
+        thumb_tip = [dataset[key].iloc[0,18], dataset[key].iloc[0,19]]
+        index_tip = [dataset[key].iloc[0,30], dataset[key].iloc[0,31]]
+        aperture = math.sqrt(((thumb_tip[0] - index_tip[0])**2) + ((thumb_tip[1] - index_tip[1])**2))
+        points = [aperture]
+        points.extend(wrist)
+
+        start_pos.append(points)
     
     return np.array(start_pos)
+
+def find_end(dataset):
+    endpoints = []
+
+    for key in dataset.keys():
+        norm = np.sqrt(np.power(dataset[key].iloc[-1,3] - dataset[key].iloc[-2,3], 2) + np.power(dataset[key].iloc[-1,4] - dataset[key].iloc[-2,4], 2))
+        endpoints.append(norm)
+    
+    endpoints = np.array(endpoints, dtype=np.float32)
+    xspace = np.arange(endpoints.shape[0])
+
+    plt.figure()
+    plt.title('dx before grasp')
+    plt.hist(endpoints, color='steelblue', edgecolor='black', alpha=0.8)
+    plt.savefig('ends', dpi=100)
+    plt.close()
 
 def discount(x, gamma):
     assert x.ndim >= 1
