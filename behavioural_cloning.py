@@ -13,7 +13,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tqdm import trange
 
 BATCH_SIZE = 2048
-EPOCHS = 100
+EPOCHS = 200
 K = 10
 show_fig = True
 
