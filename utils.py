@@ -56,33 +56,6 @@ def plot_feature(feature, type='actions'):
     plt.savefig('./plots/'+type, dpi=100)
     plt.close()
 
-# def extract_features(dataset):
-#     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
-#     features = {}
-#     features['states'] = []
-#     features['actions'] = []
-#     features['codes'] = []
-
-#     for key in dataset.keys():
-#         states = get_coords(dataset[key])
-#         actions = []
-
-#         for i in range(len(states)-1):
-#             actions.append(states.iloc[i+1] - states.iloc[i])
-
-#         actions = pd.concat(actions, ignore_index=True, axis=1).T
-#         states = states.drop(len(states.index)-1)
-
-#         features['states'].append(states)
-#         features['actions'].append(actions)
-#         features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
-    
-#     features['states'] = pd.concat(features['states'], ignore_index=True).to_numpy()
-#     features['actions'] = pd.concat(features['actions'], ignore_index=True).to_numpy()
-#     features['codes'] = np.concatenate(features['codes'], axis=0)
-
-#     return features
-
 def extract_features(dataset):
     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
     features = {}
@@ -132,80 +105,6 @@ def extract_features(dataset):
 
     return features
 
-def extract_wrist_feature(dataset):
-    one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
-    features = {}
-    features['states'] = []
-    features['actions'] = []
-    features['codes'] = []
-
-    for key in dataset.keys():
-        points = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1).to_numpy()
-        window = np.zeros((5,2), dtype=np.float32)
-        for i in range(5):
-            window[i,0] = points[0,0]
-            window[i,1] = points[0,1]
-        states = [np.copy(window.flatten())]
-        actions = []
-
-        for i in range(points.shape[0]-1):
-            actions.append(points[i+1,:] - points[i,:])
-            for j in range(4): window[j,:] = window[j+1,:]
-            window[4,:] = points[i+1,:]
-            states.append(np.copy(window.flatten()))
-
-        actions = np.array(actions, dtype=np.float32)
-        states = np.array(states, dtype=np.float32)
-        states = states[:-1,:]
-
-        features['states'].append(states)
-        features['actions'].append(actions)
-        features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
-    
-    features['states'] = np.concatenate(features['states'], axis=0)
-    features['actions'] = np.concatenate(features['actions'], axis=0)
-    features['codes'] = np.concatenate(features['codes'], axis=0)
-
-    return features
-
-def extract_aperture_feature(dataset):
-    one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
-    features = {}
-    features['states'] = []
-    features['actions'] = []
-    features['codes'] = []
-
-    for key in dataset.keys():
-        thumb_tip = pd.concat([dataset[key].iloc[:,18], dataset[key].iloc[:,19]], axis=1)
-        index_tip = pd.concat([dataset[key].iloc[:,30], dataset[key].iloc[:,31]], axis=1)
-        total_coords = pd.concat([thumb_tip, index_tip], axis=1)
-
-        window = np.zeros((5,), dtype=np.float32)
-        apertures = np.sqrt(np.power(thumb_tip.iloc[:,0] - index_tip.iloc[:,0], 2) + np.power(thumb_tip.iloc[:,1] - index_tip.iloc[:,1], 2)).values
-        for i in range(5): window[i] = apertures[0]
-        states = [np.copy(window)]
-        actions = []
-
-        for i in range(len(total_coords)-1):
-            actions.append(total_coords.iloc[i+1] - total_coords.iloc[i])
-            for j in range(4): window[j] = window[j+1]
-            window[4] = apertures[i+1]
-            states.append(np.copy(window))
-
-        actions = pd.concat(actions, ignore_index=True, axis=1).T
-        states = np.array(states, dtype=np.float32)
-        states = states[:-1]
-
-        features['states'].append(states)
-        features['actions'].append(actions)
-        features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
-    
-    features['states'] = np.concatenate(features['states'], axis=0)
-    features['actions'] = pd.concat(features['actions'], ignore_index=True).to_numpy()
-    features['codes'] = np.concatenate(features['codes'], axis=0)
-
-    return features
-
 def extract_start_pos(dataset):
     start_pos = []
 
@@ -221,21 +120,32 @@ def extract_start_pos(dataset):
     
     return np.array(start_pos)
 
-def find_end(dataset):
-    endpoints = []
-
-    for key in dataset.keys():
-        norm = np.sqrt(np.power(dataset[key].iloc[-1,3] - dataset[key].iloc[-2,3], 2) + np.power(dataset[key].iloc[-1,4] - dataset[key].iloc[-2,4], 2))
-        endpoints.append(norm)
-    
-    endpoints = np.array(endpoints, dtype=np.float32)
-    xspace = np.arange(endpoints.shape[0])
-
+def std_10(dataset):
     plt.figure()
-    plt.title('dx before grasp')
-    plt.hist(endpoints, color='steelblue', edgecolor='black', alpha=0.8)
-    plt.savefig('ends', dpi=100)
+    plt.xlabel('time (sec)')
+    plt.ylabel('y-wrist std (10 pixels)')
+    xmax = np.NINF
+    final_stds = []
+    for key in dataset.keys():
+        std10 = []
+        secs = []
+        for i in range(len(dataset[key])-10):
+            stdy = dataset[key].iloc[i:i+10, 4].to_numpy().std()
+            std10.append(stdy)
+            secs.append(dataset[key].iloc[i,1] - dataset[key].iloc[0,1])
+        
+        if max(secs) > xmax: xmax = max(secs)
+        final_stds.append(std10[-1])
+        plt.scatter(secs, std10, s=4, alpha=0.4, color='steelblue')
+    
+    plt.xlim(0,xmax)
+    plt.grid(color='lightgray', alpha=0.6)
+    plt.savefig('std10', dpi=100)
     plt.close()
+
+##################################################################
+############################# TRPO ###############################
+##################################################################
 
 def discount(x, gamma):
     assert x.ndim >= 1

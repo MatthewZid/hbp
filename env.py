@@ -11,6 +11,8 @@ class Env():
 		self.state    = np.zeros((5,3), dtype=np.float32)
 		self.max_step = max_step
 		self.n_step   = 1
+		self.frame_count = 0
+		self.std10 = []
 		self.sigma1   = sigma1
 		self.sigma2   = sigma2
 		self.speed    = speed
@@ -28,10 +30,20 @@ class Env():
 			self.state[i, :] = self.state[i+1, :]
 		self.state[4] = np.copy(self.p)
 
+		self.std10.append(self.state[-1,-1])
+		self.frame_count += 1
+
+		stdy = 0.0
+		if self.frame_count == 10:
+			stdy = np.array(self.std10).std()
+		elif self.frame_count > 10:
+			self.std10.pop(0)
+			stdy = np.array(self.std10).std()
+
 		reward = 0.0
 
 		# if self.n_step >= 129 or abs(self.p[0]) >= 1 or abs(self.p[1]) >= 1:
-		if self.n_step >= 40:	# must determine stop criteria with object distance
+		if stdy <= 1.5:	# must determine stop criteria with object distance (here: last std from std10 must be <= 1.5)
 			done = True
 		else:
 			done = False
@@ -49,5 +61,8 @@ class Env():
 		for i in range(5):
 			for j in range(3):
 				self.state[i,j] = self.p[j]
+		
+		self.std10.append(self.state[-1,-1])
+		self.frame_count += 1
 
 		return np.copy(self.state.flatten())
