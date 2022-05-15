@@ -279,7 +279,7 @@ class InfoGAIL():
                 with open("./saved_models/trpo/model.yml", 'w') as f:
                     yaml.dump(yaml_conf, f, sort_keys=False, default_flow_style=False)
 
-models = Models(state_dims=44, action_dims=44, code_dims=3)
+models = Models(state_dims=15, action_dims=3, code_dims=3)
 
 # main
 def main():

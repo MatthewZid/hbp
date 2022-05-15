@@ -33,7 +33,7 @@ class Env():
 		self.std10.append(self.state[-1,-1])
 		self.frame_count += 1
 
-		stdy = 0.0
+		stdy = np.inf
 		if self.frame_count == 10:
 			stdy = np.array(self.std10).std()
 		elif self.frame_count > 10:
@@ -48,7 +48,7 @@ class Env():
 		else:
 			done = False
 
-		return np.copy(self.state), done
+		return np.copy(self.state.flatten()), done
 
 
 	#-------------------------
