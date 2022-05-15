@@ -78,12 +78,12 @@ class InfoGAIL():
 
         # load data
         self.expert_data = read_expert()
-        self.features = extract_features(self.expert_data)
+        self.features, self.feature_size = extract_features(self.expert_data)
         state_scaler = MinMaxScaler(feature_range=(-1,1))
         action_scaler = MinMaxScaler(feature_range=(-1,1))
         self.features['states'] = state_scaler.fit_transform(self.features['states'])
         self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
-        self.start_pos = extract_start_pos(self.expert_data)
+        self.start_pos, self.start_codes = extract_start_pos(self.features, self.feature_size)
 
         generator_weight_path = ''
         if resume_training:
@@ -138,18 +138,10 @@ class InfoGAIL():
     def train(self, agent):
         for episode in trange(self.starting_episode, self.episodes, desc="Episode"):
             # Sample a batch of latent codes: ci ∼ p(c)
-            sampled_codes = np.zeros((self.code_batch, models.generator.code_dims))
-            start_gen = []
-            for i in range(self.code_batch):
-                pick = np.random.choice(models.generator.code_dims, 1)[0]
-                sampled_codes[i, pick] = 1
-                idx = np.random.choice(self.start_pos.shape[0], 1)[0]
-                start_gen.append(self.start_pos[idx])
-            
             # Sample trajectories: τi ∼ πθi(ci), with the latent code fixed during each rollout
             trajectories = []
             with mp.Pool(mp.cpu_count()) as pool:
-                trajectories = pool.starmap(agent.run, list(zip(sampled_codes, start_gen)))
+                trajectories = pool.starmap(agent.run, list(zip(self.start_codes, self.start_pos)))
             
             # Sample from buffer
             # for traj in trajectories:
