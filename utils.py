@@ -62,6 +62,7 @@ def extract_features(dataset):
     features['states'] = []
     features['actions'] = []
     features['codes'] = []
+    feature_size = []
 
     for key in dataset.keys():
         wrist = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1)
@@ -77,7 +78,7 @@ def extract_features(dataset):
         points = points.set_index('td')
         interpolated = points.resample('20ms').interpolate(method='linear').to_numpy()
     
-        window = np.zeros((5,interpolated.shape[1]), dtype=np.float32)
+        window = np.zeros((5,interpolated.shape[1]), dtype=np.float64)
         for i in range(5):
             window[i,0] = interpolated[0,0]
             window[i,1] = interpolated[0,1]
@@ -91,9 +92,11 @@ def extract_features(dataset):
             window[4,:] = interpolated[i+1,:]
             states.append(np.copy(window.flatten()))
         
-        actions = np.array(actions, dtype=np.float32)
-        states = np.array(states, dtype=np.float32)
+        actions = np.array(actions, dtype=np.float64)
+        states = np.array(states, dtype=np.float64)
         states = states[:-1,:]
+
+        feature_size.append(states.shape[0])
 
         features['states'].append(states)
         features['actions'].append(actions)
@@ -102,23 +105,21 @@ def extract_features(dataset):
     features['states'] = np.concatenate(features['states'], axis=0)
     features['actions'] = np.concatenate(features['actions'], axis=0)
     features['codes'] = np.concatenate(features['codes'], axis=0)
+    feature_size = np.array(feature_size, dtype=int)
 
-    return features
+    return features, feature_size
 
-def extract_start_pos(dataset):
+def extract_start_pos(features, feat_size):
     start_pos = []
+    codes = []
+    pos = 0
 
-    for key in dataset.keys():
-        wrist = [dataset[key].iloc[0,3], dataset[key].iloc[0,4]]
-        thumb_tip = [dataset[key].iloc[0,18], dataset[key].iloc[0,19]]
-        index_tip = [dataset[key].iloc[0,30], dataset[key].iloc[0,31]]
-        aperture = math.sqrt(((thumb_tip[0] - index_tip[0])**2) + ((thumb_tip[1] - index_tip[1])**2))
-        points = [aperture]
-        points.extend(wrist)
-
-        start_pos.append(points)
+    for sz in feat_size:
+        start_pos.append(features['states'][pos, -3:])
+        codes.append(features['codes'][pos])
+        pos += sz
     
-    return np.array(start_pos)
+    return np.array(start_pos, dtype=np.float64), np.array(codes, dtype=np.float64)
 
 def std_10(dataset):
     plt.figure()
