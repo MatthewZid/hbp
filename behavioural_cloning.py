@@ -116,6 +116,15 @@ def train_kfold():
         actions_train, actions_test = train_actions[train_index], train_actions[test_index]
         codes_train, codes_test = train_codes[train_index], train_codes[test_index]
 
+        # normalize states/actions
+        state_normalizer = MinMaxScaler(feature_range=(-1,1))
+        action_normalizer = MinMaxScaler(feature_range=(-1,1))
+
+        states_train = state_normalizer.fit_transform(states_train)
+        actions_train = action_normalizer.fit_transform(actions_train)
+        states_test = state_normalizer.transform(states_test)
+        actions_test = action_normalizer.transform(actions_test)
+
         generator, result_train, result_val = train(states_train, actions_train, codes_train, states_test, actions_test, codes_test)
         avg_train_loss += np.array(result_train) / float(K)
         avg_val_loss += np.array(result_val) / float(K)
