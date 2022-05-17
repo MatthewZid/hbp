@@ -20,6 +20,9 @@ LOGSTD = tf.math.log(0.005)
 SPEED = 0.02
 BUFFER_RATIO = 0.67
 
+PROB_THRESHOLD = 0.6
+DIST_THRESHOLD = 10
+
 def read_expert(dataset_name='preprocessed_2D'):
     # data path
     basepath = '/home/matthew/Documents/AI/thesis/hbp/dataset'
@@ -56,6 +59,17 @@ def plot_feature(feature, type='actions'):
     plt.savefig('./plots/'+type, dpi=100)
     plt.close()
 
+def filter_out(df, col):
+    df = df.loc[df[col+".prob"] > PROB_THRESHOLD]
+    coords = df[col+".y"].to_numpy()
+    dist = np.abs(coords[1:] - coords[:-1])
+    prev_dist = np.r_[dist[0], dist]
+    next_dist = np.r_[dist, dist[-1]]
+    neighbour_dist = np.min([prev_dist, next_dist], axis=0)
+    df = df[neighbour_dist < DIST_THRESHOLD]
+
+    return df
+
 def extract_features(dataset):
     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
     features = {}
@@ -63,8 +77,15 @@ def extract_features(dataset):
     features['actions'] = []
     features['codes'] = []
     feature_size = []
+    discarded = []
 
     for key in dataset.keys():
+        dataset[key] = filter_out(dataset[key], "RThumb4FingerTip")
+        dataset[key] = filter_out(dataset[key], "RIndex4FingerTip")
+        if len(dataset[key]) == 0:
+            discarded.append(key)
+            continue
+        
         wrist = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1)
         thumb_tip = pd.concat([dataset[key].iloc[:,18], dataset[key].iloc[:,19]], axis=1)
         index_tip = pd.concat([dataset[key].iloc[:,30], dataset[key].iloc[:,31]], axis=1)
@@ -106,6 +127,8 @@ def extract_features(dataset):
     features['actions'] = np.concatenate(features['actions'], axis=0)
     features['codes'] = np.concatenate(features['codes'], axis=0)
     feature_size = np.array(feature_size, dtype=int)
+
+    for key in discarded: dataset.pop(key, None)
 
     return features, feature_size
 
