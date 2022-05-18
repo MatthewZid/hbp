@@ -34,7 +34,7 @@ def create_generator(state_dims, action_dims, code_dims):
 
 # load data
 expert_data = read_expert()
-features, _ = extract_features(expert_data)
+features, _, _ = extract_features(expert_data)
 
 def train(train_states, train_actions, train_codes, val_states, val_actions, val_codes):
     train_states = tf.convert_to_tensor(train_states, dtype=tf.float32)

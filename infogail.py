@@ -78,7 +78,7 @@ class InfoGAIL():
 
         # load data
         self.expert_data = read_expert()
-        self.features, self.feature_size = extract_features(self.expert_data)
+        self.features, self.feature_size, self.expert_data = extract_features(self.expert_data)
         state_scaler = MinMaxScaler(feature_range=(-1,1))
         action_scaler = MinMaxScaler(feature_range=(-1,1))
         self.features['states'] = state_scaler.fit_transform(self.features['states'])

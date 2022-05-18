@@ -89,15 +89,17 @@ def extract_features(dataset):
         wrist = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1)
         thumb_tip = pd.concat([dataset[key].iloc[:,18], dataset[key].iloc[:,19]], axis=1)
         index_tip = pd.concat([dataset[key].iloc[:,30], dataset[key].iloc[:,31]], axis=1)
-        apertures = pd.DataFrame(np.sqrt(np.power(thumb_tip.iloc[:,0] - index_tip.iloc[:,0], 2) + np.power(thumb_tip.iloc[:,1] - index_tip.iloc[:,1], 2)), columns=['Aperture'])
-        points = pd.concat([apertures, wrist], axis=1)
+        points = pd.concat([thumb_tip, index_tip, wrist], axis=1)
         
         # resample expert trajectory with linear interpolation for equal timestamp intervals (20ms)
         points['td'] = pd.to_timedelta(dataset[key]['Time'].round(2), 's')
         if points['td'].duplicated().sum() > 0:
             points.at[points[points['td'].duplicated() == True].index.astype(int)[0], 'td'] = pd.to_timedelta(dataset[key][points['td'].duplicated() == True]['Time'].round(3), 's').iloc[0]
         points = points.set_index('td')
-        interpolated = points.resample('20ms').interpolate(method='linear').to_numpy()
+        interpolated = points.resample('20ms').interpolate(method='linear')
+        apertures = pd.DataFrame(np.sqrt(np.power(interpolated["RThumb4FingerTip.x"] - interpolated["RIndex4FingerTip.x"], 2) \
+                    + np.power(interpolated["RThumb4FingerTip.y"] - interpolated["RIndex4FingerTip.y"], 2)), columns=['Aperture'])
+        interpolated = pd.concat([apertures, interpolated["RWrist.x"], interpolated["RWrist.y"]], axis=1).to_numpy()
     
         window = np.zeros((5,interpolated.shape[1]), dtype=np.float64)
         for i in range(5):
@@ -130,7 +132,7 @@ def extract_features(dataset):
 
     for key in discarded: dataset.pop(key, None)
 
-    return features, feature_size
+    return features, feature_size, dataset
 
 def extract_start_pos(features, feat_size):
     start_pos = []
