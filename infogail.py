@@ -156,9 +156,6 @@ class InfoGAIL():
             generated_codes = np.concatenate([traj['codes'] for traj in trajectories])
             generated_oldactions = np.concatenate([traj['old_action_mus'] for traj in trajectories])
 
-            # minmax scaler
-            scaler = MinMaxScaler(feature_range=(-1,1))
-
             # train discriminator
             # Sample state-action pairs χi ~ τi and χΕ ~ τΕ with the same batch size
             expert_idx = np.arange(self.features['states'].shape[0])
