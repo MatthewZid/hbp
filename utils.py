@@ -85,16 +85,52 @@ def extract_apertures(movement, joint1, joint2):
     apertures[invalid_frames] = np.nan
     return apertures
 
+def resample_half(df, threshold):
+    timediff = df['time'].iloc[1:].to_numpy() - df['time'].iloc[:-1].to_numpy()
+    res = np.where(timediff > threshold)[0]
+    newrows = (df['time'].iloc[res] + (timediff[res] / 2.0)).to_numpy()
+    timedf = []
+    featuredf = []
+    pos = 0
+    for i in range(newrows.shape[0]):
+        timepart = df['time'].iloc[pos:res[i]+1]
+        featurepart = df[feature].iloc[pos:res[i]+1]
+        timepart.loc[len(timepart.index)] = newrows[i]
+        featurepart.loc[len(featurepart.index)] = np.nan
+        timedf.append(timepart)
+        featuredf.append(featurepart)
+        pos = (res[i]+1)
+    timedf.append(df['time'].iloc[pos:len(df['time'].index)])
+    featuredf.append(df[feature].iloc[pos:len(df[feature].index)])
+    df['time'] = pd.concat(timedf, axis=0, ignore_index=True)
+    df[feature] = pd.concat(featuredf, axis=0, ignore_index=True)
+
 def extract_features(dataset):
     for key in dataset.keys():
         features = {}
-        features['time'] = dataset[key]['Time'].iloc[WINDOW:]
+        features['time'] = dataset[key]['Time'].iloc[WINDOW:].reset_index(drop=True)
         features['apertures'] = extract_apertures(dataset[key], "RThumb4FingerTip", "RIndex4FingerTip")
-        features['wrist_x'] = dataset[key]['RWrist.x'].iloc[WINDOW:]
-        features['wrist_y'] = dataset[key]['RWrist.y'].iloc[WINDOW:]
+        features['wrist_x'] = dataset[key]['RWrist.x'].iloc[WINDOW:].reset_index(drop=True)
+        features['wrist_y'] = dataset[key]['RWrist.y'].iloc[WINDOW:].reset_index(drop=True)
         
         features_df = pd.DataFrame(features)
         dataset[key] = features_df
+
+def extract_apertures_wrist_mdp(dataset):
+    one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
+    features = {}
+    features['states'] = []
+    features['actions'] = []
+    features['codes'] = []
+    feature_size = []
+
+    for key in dataset.keys():
+        dataset[key] = dataset[key].dropna()
+        # ...OR...
+        # dataset[key] = dataset[key].fillna(0)
+
+        # need to fix resample_half to accept dataframe input
+        return
 
 # def extract_features(dataset):
 #     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
