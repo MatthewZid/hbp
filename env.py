@@ -8,7 +8,7 @@ class Env():
 	# Constructor
 	#-------------------------
 	def __init__(self, speed=0.02, sigma1=0.01, sigma2=0.005, max_step=512):
-		self.state    = np.zeros((5,3), dtype=np.float32)
+		self.state    = None
 		self.max_step = max_step
 		self.n_step   = 1
 		self.frame_count = 0
@@ -16,14 +16,14 @@ class Env():
 		self.sigma1   = sigma1
 		self.sigma2   = sigma2
 		self.speed    = speed
-		self.p = np.zeros((3,), dtype=np.float32)
+		self.p = None
 	
 
 	#-------------------------
 	# Step
 	#-------------------------
 	def step(self, action):
-		for i in range(3): self.p[i] += action[i] + self.sigma2*np.random.randn()
+		for i in range(self.p.shape[0]): self.p[i] += action[i] + self.sigma2*np.random.randn()
 		self.n_step += 1
 
 		for i in range(4):
@@ -55,11 +55,13 @@ class Env():
 	# Reset
 	#-------------------------
 	def reset(self, start=(0.0,0.0,0.0)):
-		for i in range(3): self.p[i] = start[i]
+		self.state = np.zeros((5, len(start)), dtype=np.float64)
+		self.p = np.zeros((len(start),), dtype=np.float64)
+		for i in range(len(start)): self.p[i] = start[i]
 		self.n_step = 1
 
 		for i in range(5):
-			for j in range(3):
+			for j in range(len(start)):
 				self.state[i,j] = self.p[j]
 		
 		self.std10.append(self.state[-1,-1])

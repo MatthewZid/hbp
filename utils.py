@@ -13,7 +13,7 @@ OBJ_SIZE_POS = 4
 PROB_THRESHOLD = 0.6
 DIST_THRESHOLD = 10
 WINDOW = 9
-RESAMPLE_THRESH = 0.03
+RESAMPLE_THRESH = 0.029
 
 improved = 0
 save_loss = True
@@ -26,7 +26,7 @@ BUFFER_RATIO = 0.67
 
 def read_expert(dataset_name='preprocessed_2D'):
     # data path
-    basepath = '/home/matthew/Documents/AI/thesis/src/hbp/dataset'
+    basepath = '/home/matthew/Documents/AI/thesis/hbp/dataset'
     datapath = os.path.join(basepath, dataset_name)
 
     # init dataset dict
@@ -51,14 +51,6 @@ def get_coords(df, keep=2, start=3):
         else: keep = 2
     
     return pd.concat(sk, axis=1)
-
-def plot_feature(feature, type='actions'):
-    plt.figure()
-    plt.title('Expert '+type)
-    for i in range(0, feature.shape[1]-1, 2):
-        plt.scatter(feature[:,i], feature[:,i+1], s=4, alpha=0.4)
-    plt.savefig('./plots/'+type, dpi=100)
-    plt.close()
 
 def neighbour_dist(coords):
     dist = np.abs(coords[1:] - coords[:-1])
@@ -91,7 +83,7 @@ def resample_half(df, threshold):
 
     if 'time' not in df.columns:
         print('time column not present!')
-        return df
+        return df, False
 
     timediff = df['time'].iloc[1:].to_numpy() - df['time'].iloc[:-1].to_numpy()
     res = np.where(timediff > threshold)[0]
@@ -115,8 +107,13 @@ def resample_half(df, threshold):
             newdf.append(pd.concat(featuredf[col], axis=0, ignore_index=True))
         
         df = pd.concat(newdf, axis=1)
+        timediff = df['time'].iloc[1:].to_numpy() - df['time'].iloc[:-1].to_numpy()
+        res = np.where(timediff > threshold)[0]
 
-    return df
+        if res.shape[0] > 0: return df, True
+        else: return df, False
+
+    return df, False
 
 def plot_time_dist(dataset, name='time_dist'):
     timedist = []
@@ -127,6 +124,9 @@ def plot_time_dist(dataset, name='time_dist'):
     timedist = np.concatenate(timedist, axis=0)
     
     plt.figure()
+    plt.title('Sampling rate for every frame')
+    plt.xlabel('Frame No.')
+    plt.ylabel('Sampling rate (sec)')
     plt.scatter(np.arange(timedist.shape[0]), timedist, s=4, alpha=0.4)
     plt.savefig(name, dpi=100)
     plt.close()
@@ -141,6 +141,8 @@ def extract_features(dataset):
         
         features_df = pd.DataFrame(features)
         dataset[key] = features_df
+    
+    return dataset
 
 def extract_apertures_wrist_mdp(dataset):
     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
@@ -154,7 +156,8 @@ def extract_apertures_wrist_mdp(dataset):
         # dataset[key] = dataset[key].dropna()
         # ...OR...
         dataset[key] = dataset[key].fillna(0) # not sure about that, probably dropna is solution
-        dataset[key] = resample_half(dataset[key], RESAMPLE_THRESH).interpolate(method='linear')
+        dataset[key], _ = resample_half(dataset[key], RESAMPLE_THRESH)
+        dataset[key] = dataset[key].interpolate(method='linear')
         points = pd.concat([dataset[key]['apertures'], dataset[key]['wrist_x'], dataset[key]['wrist_y']], axis=1).to_numpy()
 
         window = np.zeros((5,points.shape[1]), dtype=np.float64)
@@ -186,79 +189,71 @@ def extract_apertures_wrist_mdp(dataset):
     features['codes'] = np.concatenate(features['codes'], axis=0)
     feature_size = np.array(feature_size, dtype=int)
 
-    return features, feature_size, dataset
+    return features, feature_size, dataset, 3
 
-# def extract_features(dataset):
-#     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
-#     features = {}
-#     features['states'] = []
-#     features['actions'] = []
-#     features['codes'] = []
-#     feature_size = []
-#     # discarded = []
+def extract_apertures_mdp(dataset):
+    one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
+    features = {}
+    features['states'] = []
+    features['actions'] = []
+    features['codes'] = []
+    feature_size = []
+    discarded = []
 
-#     for key in dataset.keys():
-#         # dataset[key] = filter_out(dataset[key], "RThumb4FingerTip")
-#         # dataset[key] = filter_out(dataset[key], "RIndex4FingerTip")
-#         # if len(dataset[key]) == 0:
-#         #     discarded.append(key)
-#         #     continue
+    for key in dataset.keys():
+        dataset[key] = dataset[key].dropna()
+        # ...OR...
+        # dataset[key] = dataset[key].fillna(0) # not sure about that, probably dropna is solution
+        status = True
+
+        while status:
+            dataset[key], status = resample_half(dataset[key], RESAMPLE_THRESH) # while there are still splittable time distances
+            dataset[key] = dataset[key].interpolate(method='linear')
+        if len(dataset[key]) < 2:
+            print('Skipping '+key+'...')
+            discarded.append(key)
+            continue
+        points = dataset[key]['apertures'].to_numpy()
+
+        window = np.zeros((5,), dtype=np.float64)
+        for i in range(5):
+            window[i] = points[0]
+        states = [np.copy(window)]
+        actions = []
+
+        for i in range(points.shape[0]-1):
+            actions.append(points[i+1] - points[i])
+            for j in range(4): window[j] = window[j+1]
+            window[4] = points[i+1]
+            states.append(np.copy(window))
         
-#         wrist = pd.concat([dataset[key].iloc[:,3], dataset[key].iloc[:,4]], axis=1)
-#         thumb_tip = pd.concat([dataset[key].iloc[:,18], dataset[key].iloc[:,19]], axis=1)
-#         index_tip = pd.concat([dataset[key].iloc[:,30], dataset[key].iloc[:,31]], axis=1)
-#         points = pd.concat([thumb_tip, index_tip, wrist], axis=1)
-        
-#         # resample expert trajectory with linear interpolation for equal timestamp intervals (20ms)
-#         points['td'] = pd.to_timedelta(dataset[key]['Time'].round(2), 's')
-#         if points['td'].duplicated().sum() > 0:
-#             points.at[points[points['td'].duplicated() == True].index.astype(int)[0], 'td'] = pd.to_timedelta(dataset[key][points['td'].duplicated() == True]['Time'].round(3), 's').iloc[0]
-#         points = points.set_index('td')
-#         interpolated = points.resample('20ms').interpolate(method='linear')
-#         apertures = pd.DataFrame(np.sqrt(np.power(interpolated["RThumb4FingerTip.x"] - interpolated["RIndex4FingerTip.x"], 2) \
-#                     + np.power(interpolated["RThumb4FingerTip.y"] - interpolated["RIndex4FingerTip.y"], 2)), columns=['Aperture'])
-#         interpolated = pd.concat([apertures, interpolated["RWrist.x"], interpolated["RWrist.y"]], axis=1).to_numpy()
+        actions = np.array(actions, dtype=np.float64)
+        states = np.array(states, dtype=np.float64)
+        states = states[:-1, :]
+
+        feature_size.append(states.shape[0])
+
+        features['states'].append(states)
+        features['actions'].append(actions)
+        features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(states.shape[0])]))
     
-#         window = np.zeros((5,interpolated.shape[1]), dtype=np.float64)
-#         for i in range(5):
-#             window[i,0] = interpolated[0,0]
-#             window[i,1] = interpolated[0,1]
-#             window[i,2] = interpolated[0,2]
-#         states = [np.copy(window.flatten())]
-#         actions = []
+    print('\n')
+    features['states'] = np.concatenate(features['states'], axis=0)
+    features['actions'] = np.expand_dims(np.concatenate(features['actions'], axis=0), axis=1)
+    features['codes'] = np.concatenate(features['codes'], axis=0)
+    feature_size = np.array(feature_size, dtype=int)
 
-#         for i in range(interpolated.shape[0]-1):
-#             actions.append(interpolated[i+1,:] - interpolated[i,:])
-#             for j in range(4): window[j,:] = window[j+1,:]
-#             window[4,:] = interpolated[i+1,:]
-#             states.append(np.copy(window.flatten()))
-        
-#         actions = np.array(actions, dtype=np.float64)
-#         states = np.array(states, dtype=np.float64)
-#         states = states[:-1,:]
+    for key in discarded: dataset.pop(key, None)
 
-#         feature_size.append(states.shape[0])
+    return features, feature_size, dataset, 1
 
-#         features['states'].append(states)
-#         features['actions'].append(actions)
-#         features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(len(states))]))
-    
-#     features['states'] = np.concatenate(features['states'], axis=0)
-#     features['actions'] = np.concatenate(features['actions'], axis=0)
-#     features['codes'] = np.concatenate(features['codes'], axis=0)
-#     feature_size = np.array(feature_size, dtype=int)
-
-#     # for key in discarded: dataset.pop(key, None)
-
-#     return features, feature_size, dataset
-
-def extract_start_pos(features, feat_size):
+def extract_start_pos(features, feat_size, feat_col_len):
     start_pos = []
     codes = []
     pos = 0
 
     for sz in feat_size:
-        start_pos.append(features['states'][pos, -3:])
+        start_pos.append(features['states'][pos, -feat_col_len:])
         codes.append(features['codes'][pos])
         pos += sz
     

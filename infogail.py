@@ -34,7 +34,8 @@ class Agent():
             state_tf = tf.constant(state_obsrv)
             state_tf = tf.expand_dims(state_tf, axis=0)
             action_mu = models.generator.model([state_tf, code_tf], training=False)
-            action_mu = tf.squeeze(action_mu).numpy()
+            action_mu = action_mu.numpy().reshape((action_mu.shape[1],))
+            # action_mu = tf.squeeze(action_mu).numpy()
 
             s_traj.append(state_obsrv)
             a_traj.append(action_mu)
@@ -78,12 +79,13 @@ class InfoGAIL():
 
         # load data
         self.expert_data = read_expert()
-        self.features, self.feature_size, self.expert_data = extract_features(self.expert_data)
+        self.expert_data = extract_features(self.expert_data)
+        self.features, self.feature_size, self.expert_data, feat_len = extract_apertures_mdp(self.expert_data)
         state_scaler = MinMaxScaler(feature_range=(-1,1))
         action_scaler = MinMaxScaler(feature_range=(-1,1))
         self.features['states'] = state_scaler.fit_transform(self.features['states'])
         self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
-        self.start_pos, self.start_codes = extract_start_pos(self.features, self.feature_size)
+        self.start_pos, self.start_codes = extract_start_pos(self.features, self.feature_size, feat_len)
 
         generator_weight_path = ''
         if resume_training:
@@ -268,7 +270,7 @@ class InfoGAIL():
                 with open("./saved_models/trpo/model.yml", 'w') as f:
                     yaml.dump(yaml_conf, f, sort_keys=False, default_flow_style=False)
 
-models = Models(state_dims=15, action_dims=3, code_dims=3)
+models = Models(state_dims=5, action_dims=1, code_dims=3)
 
 # main
 def main():
