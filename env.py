@@ -43,7 +43,7 @@ class Env():
 		reward = 0.0
 
 		# if self.n_step >= 129 or abs(self.p[0]) >= 1 or abs(self.p[1]) >= 1:
-		if stdy <= 1.5:	# must determine stop criteria with object distance (here: last std from std10 must be <= 1.5)
+		if stdy <= 0.033:	# must determine stop criteria with object distance (here: last std from std10 must be <= 1.5 for unnormalized y-wrist feature or 0.033 for normalized apertures)
 			done = True
 		else:
 			done = False
