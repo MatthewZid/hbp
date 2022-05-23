@@ -259,19 +259,32 @@ def extract_start_pos(features, feat_size, feat_col_len):
     
     return np.array(start_pos, dtype=np.float64), np.array(codes, dtype=np.float64)
 
-def std_10(dataset):
+def std10_apertures(dataset):
     plt.figure()
     plt.xlabel('time (sec)')
-    plt.ylabel('y-wrist std (10 pixels)')
+    plt.ylabel('aperture std')
     xmax = np.NINF
+    xmin = np.inf
     final_stds = []
+    
     for key in dataset.keys():
         if len(dataset[key]) < 10:
             continue
+
         std10 = []
         secs = []
-        for i in range(len(dataset[key])-9):
-            stdy = dataset[key].iloc[i:i+10, 4].to_numpy().std()
+
+        x1 = dataset[key]['RThumb4FingerTip.x'].iloc[:].to_numpy()
+        y1 = dataset[key]['RThumb4FingerTip.y'].iloc[:].to_numpy()
+
+        x2 = dataset[key]['RIndex4FingerTip.x'].iloc[:].to_numpy()
+        y2 = dataset[key]['RIndex4FingerTip.y'].iloc[:].to_numpy()
+
+        apertures = np.sqrt(np.power(x1 - x2, 2) + np.power(y1 - y2, 2))
+
+        for i in range(apertures.shape[0]-9):
+            stdy = apertures[i:i+10].std()
+            if stdy < xmin: xmin = stdy
             std10.append(stdy)
             secs.append(dataset[key].iloc[i+9,1] - dataset[key].iloc[0,1])
         
@@ -279,9 +292,61 @@ def std_10(dataset):
         final_stds.append(std10[-1])
         plt.scatter(secs, std10, s=4, alpha=0.4, color='steelblue')
     
+    print(xmin)
+    print(np.array(final_stds).min())
+    print(np.array(final_stds).max())
+    print(np.array(final_stds).mean())
+    print(np.array(final_stds).std())
+
+    plt.xlim(0,xmax)
+    plt.grid(color='lightgray', alpha=0.6)
+    plt.savefig('std10_apertures', dpi=100)
+    plt.close()
+
+    plt.figure()
+    plt.scatter(np.arange(len(final_stds)), final_stds, s=4, alpha=0.4, color='steelblue')
+    plt.grid(color='lightgray', alpha=0.6)
+    plt.savefig('std10_movement_ends', dpi=100)
+    plt.close()
+
+def std_10(dataset):
+    plt.figure()
+    plt.xlabel('time (sec)')
+    plt.ylabel('y-wrist std (10 pixels)')
+    xmax = np.NINF
+    xmin = np.inf
+    final_stds = []
+
+    for key in dataset.keys():
+        if len(dataset[key]) < 10:
+            continue
+        std10 = []
+        secs = []
+        for i in range(len(dataset[key])-9):
+            stdy = dataset[key].iloc[i:i+10, 4].to_numpy().std()
+            if stdy < xmin: xmin = stdy
+            std10.append(stdy)
+            secs.append(dataset[key].iloc[i+9,1] - dataset[key].iloc[0,1])
+        
+        if max(secs) > xmax: xmax = max(secs)
+        final_stds.append(std10[-1])
+        plt.scatter(secs, std10, s=4, alpha=0.4, color='steelblue')
+    
+    print(xmin)
+    print(np.array(final_stds).min())
+    print(np.array(final_stds).max())
+    print(np.array(final_stds).mean())
+    print(np.array(final_stds).std())
+
     plt.xlim(0,xmax)
     plt.grid(color='lightgray', alpha=0.6)
     plt.savefig('std10', dpi=100)
+    plt.close()
+
+    plt.figure()
+    plt.scatter(np.arange(len(final_stds)), final_stds, s=4, alpha=0.4, color='steelblue')
+    plt.grid(color='lightgray', alpha=0.6)
+    plt.savefig('std10_movement_ends', dpi=100)
     plt.close()
 
 ##################################################################
