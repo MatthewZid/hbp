@@ -35,7 +35,7 @@ def create_generator(state_dims, action_dims, code_dims):
 # load data
 expert_data = read_expert()
 expert_data = extract_features(expert_data)
-features, _, _, _ = extract_apertures_mdp(expert_data)
+features, _, _, _ = extract_apertures_wrist_mdp(expert_data)
 
 def train(train_states, train_actions, train_codes, val_states, val_actions, val_codes):
     train_states = tf.convert_to_tensor(train_states, dtype=tf.float32)
@@ -118,13 +118,13 @@ def train_kfold():
         codes_train, codes_test = train_codes[train_index], train_codes[test_index]
 
         # normalize states/actions
-        state_normalizer = MinMaxScaler(feature_range=(-1,1))
-        action_normalizer = MinMaxScaler(feature_range=(-1,1))
+        # state_normalizer = MinMaxScaler(feature_range=(-1,1))
+        # action_normalizer = MinMaxScaler(feature_range=(-1,1))
 
-        states_train = state_normalizer.fit_transform(states_train)
-        actions_train = action_normalizer.fit_transform(actions_train)
-        states_test = state_normalizer.transform(states_test)
-        actions_test = action_normalizer.transform(actions_test)
+        # states_train = state_normalizer.fit_transform(states_train)
+        # actions_train = action_normalizer.fit_transform(actions_train)
+        # states_test = state_normalizer.transform(states_test)
+        # actions_test = action_normalizer.transform(actions_test)
 
         generator, result_train, result_val = train(states_train, actions_train, codes_train, states_test, actions_test, codes_test)
         avg_train_loss += np.array(result_train) / float(K)
@@ -171,7 +171,7 @@ result_test = None
 result_train = None
 result_val = None
 
-test_flag = False
+test_flag = True
 if test_flag:
     generator, result_train, result_val, result_test = train_kfold()
     print('\nTest loss: {:f}'.format(result_test))
