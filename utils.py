@@ -13,7 +13,6 @@ OBJ_SIZE_POS = 4
 PROB_THRESHOLD = 0.6
 DIST_THRESHOLD = 10
 WINDOW = 9
-RESAMPLE_THRESH = 0.029
 
 improved = 0
 save_loss = True
@@ -78,43 +77,6 @@ def extract_apertures(movement, joint1, joint2):
     apertures[invalid_frames] = np.nan
     return apertures
 
-def resample_half(df, threshold):
-    """ Resample to half timestamps that are at least threshold sec apart """
-
-    if 'time' not in df.columns:
-        print('time column not present!')
-        return df, False
-
-    timediff = df['time'].iloc[1:].to_numpy() - df['time'].iloc[:-1].to_numpy()
-    res = np.where(timediff > threshold)[0]
-
-    if res.shape[0] > 0:
-        newrows = (df['time'].iloc[res] + (timediff[res] / 2.0)).to_numpy()
-        featuredf = {}
-        for col in df.columns: featuredf[col] = []
-        pos = 0
-        for i in range(newrows.shape[0]):
-            for col in featuredf.keys():
-                featurepart = df[col].iloc[pos:res[i]+1].reset_index(drop=True)
-                if col == 'time': featurepart.loc[len(featurepart.index)] = newrows[i]
-                else: featurepart.loc[len(featurepart.index)] = np.nan
-                featuredf[col].append(featurepart)
-            pos = res[i]+1
-
-        newdf = []
-        for col in featuredf.keys():
-            featuredf[col].append(df[col].iloc[pos:len(df[col].index)])
-            newdf.append(pd.concat(featuredf[col], axis=0, ignore_index=True))
-        
-        df = pd.concat(newdf, axis=1)
-        timediff = df['time'].iloc[1:].to_numpy() - df['time'].iloc[:-1].to_numpy()
-        res = np.where(timediff > threshold)[0]
-
-        if res.shape[0] > 0: return df, True
-        else: return df, False
-
-    return df, False
-
 def plot_time_dist(dataset, name='time_dist'):
     timedist = []
     for key in dataset.keys():
@@ -135,6 +97,9 @@ def extract_features(dataset):
     for key in dataset.keys():
         features = {}
         features['time'] = dataset[key]['Time'].iloc[WINDOW:].reset_index(drop=True)
+        abs_time = features['time'].to_numpy()
+        norm_time = 100.0 * (abs_time - abs_time[0]) / (abs_time[-1] - abs_time[0])
+        features['norm_time'] = norm_time
         features['apertures'] = extract_apertures(dataset[key], "RThumb4FingerTip", "RIndex4FingerTip")
         features['wrist_x'] = dataset[key]['RWrist.x'].iloc[WINDOW:].reset_index(drop=True)
         features['wrist_y'] = dataset[key]['RWrist.y'].iloc[WINDOW:].reset_index(drop=True)
@@ -143,6 +108,94 @@ def extract_features(dataset):
         dataset[key] = features_df
     
     return dataset
+
+def count_nann_apertures(dataset):
+    ignored = 0
+    group_by_mode = {}
+    group_by_mode['S'] = np.zeros((5,), dtype=np.float64)
+    group_by_mode['M'] = np.zeros((5,), dtype=np.float64)
+    group_by_mode['L'] = np.zeros((5,), dtype=np.float64)
+    compl_per = [20.0, 40.0, 60.0, 80.0, 100.0]
+
+    for key in dataset.keys():
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        if nans.shape[0] > 0:
+            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0:
+                ignored += 1
+                continue
+        
+        missing = []
+        for per in compl_per:
+            compl_data = dataset[key][dataset[key]['norm_time'] <= per]
+            nans = np.where(np.isnan(compl_data['apertures'].to_numpy()))[0].shape[0] # count nans
+            missing.append(nans.shape[0])
+
+        group_by_mode[key[OBJ_SIZE_POS]] = np.add(group_by_mode[key[OBJ_SIZE_POS]], missing)
+
+    print('{:d} rejected movements'.format(ignored))
+    
+    for i in range(len(compl_per)):
+        plt.figure()
+        plt.grid(alpha=0.6)
+        plt.title(str(int(compl_per[i]))+'%')
+        plt.xlabel('Object size')
+        plt.ylabel('Rejected aperture (NaN) count')
+        plt.bar(['S','M','L'], [group_by_mode['S'][i], group_by_mode['M'][i], group_by_mode['L'][i]], width=0.1)
+        plt.savefig(str(int(compl_per[i]))+'_per', dpi=100)
+        plt.close()
+
+def count_nan_apertures_per(dataset):
+    group_by_mode = {}
+    group_by_mode['S'] = []
+    group_by_mode['M'] = []
+    group_by_mode['L'] = []
+
+    for key in dataset.keys():
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        if nans.shape[0] > 0:
+            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
+        
+        group_by_mode[key[OBJ_SIZE_POS]].append((nans.shape[0] / len(dataset[key])) * 100.0)
+    
+    plt.figure()
+    plt.title('Aperture NaN percentage for every movement')
+    plt.xlabel('Movement No.')
+    plt.ylabel('NaN count (%)')
+    for sz in ['S','M','L']:
+        plt.plot(np.arange(len(group_by_mode[sz])), group_by_mode[sz])
+    plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
+    plt.savefig('count_nans_per', dpi=100)
+    plt.close()
+
+def interpolated_boxplot(dataset):
+    group_by_mode = {}
+    group_by_mode['S'] = [[],[],[],[],[]]
+    group_by_mode['M'] = [[],[],[],[],[]]
+    group_by_mode['L'] = [[],[],[],[],[]]
+    compl_per = [20.0, 40.0, 60.0, 80.0, 100.0]
+
+    for key in dataset.keys():
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        if nans.shape[0] > 0:
+            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
+            dataset[key] = dataset[key].interpolate(method='linear')
+        
+        for i in range(len(compl_per)):
+            compl_data = dataset[key][dataset[key]['norm_time'] <= compl_per[i]]['apertures'].to_numpy()
+            group_by_mode[key[OBJ_SIZE_POS]][i].append(compl_data)
+    
+    for i in range(len(compl_per)):
+        group_by_mode['S'][i] = np.concatenate(group_by_mode['S'][i], axis=0)
+        group_by_mode['M'][i] = np.concatenate(group_by_mode['M'][i], axis=0)
+        group_by_mode['L'][i] = np.concatenate(group_by_mode['L'][i], axis=0)
+
+        plt.figure()
+        plt.title('Interpolated aperture boxplot of '+str(int(compl_per[i]))+'%')
+        plt.boxplot([group_by_mode['S'][i], group_by_mode['M'][i], group_by_mode['L'][i]])
+        plt.xticks([1,2,3],['S','M','L'])
+        plt.xlabel('Object size')
+        plt.savefig('boxplot_'+str(int(compl_per[i]))+'_per', dpi=100)
+        plt.close()
 
 def extract_apertures_wrist_mdp(dataset):
     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
@@ -153,11 +206,11 @@ def extract_apertures_wrist_mdp(dataset):
     feature_size = []
 
     for key in dataset.keys():
-        # dataset[key] = dataset[key].dropna()
-        # ...OR...
-        dataset[key] = dataset[key].fillna(0) # not sure about that, probably dropna is solution
-        dataset[key], _ = resample_half(dataset[key], RESAMPLE_THRESH)
-        dataset[key] = dataset[key].interpolate(method='linear')
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        if nans.shape[0] > 0:
+            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
+            dataset[key] = dataset[key].interpolate(method='linear')
+
         points = pd.concat([dataset[key]['apertures'], dataset[key]['wrist_x'], dataset[key]['wrist_y']], axis=1).to_numpy()
 
         window = np.zeros((5,points.shape[1]), dtype=np.float64)
@@ -190,62 +243,6 @@ def extract_apertures_wrist_mdp(dataset):
     feature_size = np.array(feature_size, dtype=int)
 
     return features, feature_size, dataset, 3
-
-def extract_apertures_mdp(dataset):
-    one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
-    features = {}
-    features['states'] = []
-    features['actions'] = []
-    features['codes'] = []
-    feature_size = []
-    discarded = []
-
-    for key in dataset.keys():
-        dataset[key] = dataset[key].dropna()
-        # ...OR...
-        # dataset[key] = dataset[key].fillna(0) # not sure about that, probably dropna is solution
-        status = True
-
-        while status:
-            dataset[key], status = resample_half(dataset[key], RESAMPLE_THRESH) # while there are still splittable time distances
-            dataset[key] = dataset[key].interpolate(method='linear')
-        if len(dataset[key]) < 2:
-            print('Skipping '+key+'...')
-            discarded.append(key)
-            continue
-        points = dataset[key]['apertures'].to_numpy()
-
-        window = np.zeros((5,), dtype=np.float64)
-        for i in range(5):
-            window[i] = points[0]
-        states = [np.copy(window)]
-        actions = []
-
-        for i in range(points.shape[0]-1):
-            actions.append(points[i+1] - points[i])
-            for j in range(4): window[j] = window[j+1]
-            window[4] = points[i+1]
-            states.append(np.copy(window))
-        
-        actions = np.array(actions, dtype=np.float64)
-        states = np.array(states, dtype=np.float64)
-        states = states[:-1, :]
-
-        feature_size.append(states.shape[0])
-
-        features['states'].append(states)
-        features['actions'].append(actions)
-        features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(states.shape[0])]))
-    
-    print('\n')
-    features['states'] = np.concatenate(features['states'], axis=0)
-    features['actions'] = np.expand_dims(np.concatenate(features['actions'], axis=0), axis=1)
-    features['codes'] = np.concatenate(features['codes'], axis=0)
-    feature_size = np.array(feature_size, dtype=int)
-
-    for key in discarded: dataset.pop(key, None)
-
-    return features, feature_size, dataset, 1
 
 def extract_start_pos(features, feat_size, feat_col_len):
     start_pos = []
