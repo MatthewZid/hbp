@@ -109,7 +109,7 @@ def extract_features(dataset):
     
     return dataset
 
-def count_nann_apertures(dataset):
+def count_nan_apertures(dataset):
     ignored = 0
     group_by_mode = {}
     group_by_mode['S'] = np.zeros((5,), dtype=np.float64)
@@ -128,19 +128,16 @@ def count_nann_apertures(dataset):
         for per in compl_per:
             compl_data = dataset[key][dataset[key]['norm_time'] <= per]
             nans = np.where(np.isnan(compl_data['apertures'].to_numpy()))[0].shape[0] # count nans
-            missing.append(nans.shape[0])
+            missing.append(nans)
 
         group_by_mode[key[OBJ_SIZE_POS]] = np.add(group_by_mode[key[OBJ_SIZE_POS]], missing)
-
-    print('{:d} rejected movements'.format(ignored))
     
     for i in range(len(compl_per)):
         plt.figure()
-        plt.grid(alpha=0.6)
-        plt.title(str(int(compl_per[i]))+'%')
+        plt.title(str(int(compl_per[i]))+'% interval of movement (total '+str(715 - ignored)+')')
         plt.xlabel('Object size')
         plt.ylabel('Rejected aperture (NaN) count')
-        plt.bar(['S','M','L'], [group_by_mode['S'][i], group_by_mode['M'][i], group_by_mode['L'][i]], width=0.1)
+        plt.bar(['S','M','L'], [group_by_mode['S'][i], group_by_mode['M'][i], group_by_mode['L'][i]])
         plt.savefig(str(int(compl_per[i]))+'_per', dpi=100)
         plt.close()
 
@@ -149,20 +146,23 @@ def count_nan_apertures_per(dataset):
     group_by_mode['S'] = []
     group_by_mode['M'] = []
     group_by_mode['L'] = []
+    ignored = 0
 
     for key in dataset.keys():
         nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
         if nans.shape[0] > 0:
-            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
-        
+            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0:
+                ignored += 1
+                continue
+
         group_by_mode[key[OBJ_SIZE_POS]].append((nans.shape[0] / len(dataset[key])) * 100.0)
     
     plt.figure()
-    plt.title('Aperture NaN percentage for every movement')
+    plt.title('Aperture NaN percentage for {:d} movements'.format(715 - ignored))
     plt.xlabel('Movement No.')
     plt.ylabel('NaN count (%)')
     for sz in ['S','M','L']:
-        plt.plot(np.arange(len(group_by_mode[sz])), group_by_mode[sz])
+        plt.bar(np.arange(len(group_by_mode[sz])), group_by_mode[sz])
     plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
     plt.savefig('count_nans_per', dpi=100)
     plt.close()
@@ -190,7 +190,7 @@ def interpolated_boxplot(dataset):
         group_by_mode['L'][i] = np.concatenate(group_by_mode['L'][i], axis=0)
 
         plt.figure()
-        plt.title('Interpolated aperture boxplot of '+str(int(compl_per[i]))+'%')
+        plt.title('Interpolated aperture boxplot of '+str(int(compl_per[i]))+'% movement interval')
         plt.boxplot([group_by_mode['S'][i], group_by_mode['M'][i], group_by_mode['L'][i]])
         plt.xticks([1,2,3],['S','M','L'])
         plt.xlabel('Object size')
@@ -256,54 +256,41 @@ def extract_start_pos(features, feat_size, feat_col_len):
     
     return np.array(start_pos, dtype=np.float64), np.array(codes, dtype=np.float64)
 
-def std10_apertures(dataset):
-    plt.figure()
-    plt.xlabel('time (sec)')
-    plt.ylabel('aperture std')
-    xmax = np.NINF
-    xmin = np.inf
-    final_stds = []
-    
+def movement_end(dataset):
+    ignored = 0
+    final_pos = {}
+    final_pos['S'] = [[], []]
+    final_pos['M'] = [[], []]
+    final_pos['L'] = [[], []]
+
     for key in dataset.keys():
-        if len(dataset[key]) < 10:
-            continue
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        if nans.shape[0] > 0:
+            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0:
+                ignored += 1
+                continue
 
-        std10 = []
-        secs = []
-
-        x1 = dataset[key]['RThumb4FingerTip.x'].iloc[:].to_numpy()
-        y1 = dataset[key]['RThumb4FingerTip.y'].iloc[:].to_numpy()
-
-        x2 = dataset[key]['RIndex4FingerTip.x'].iloc[:].to_numpy()
-        y2 = dataset[key]['RIndex4FingerTip.y'].iloc[:].to_numpy()
-
-        apertures = np.sqrt(np.power(x1 - x2, 2) + np.power(y1 - y2, 2))
-
-        for i in range(apertures.shape[0]-9):
-            stdy = apertures[i:i+10].std()
-            if stdy < xmin: xmin = stdy
-            std10.append(stdy)
-            secs.append(dataset[key].iloc[i+9,1] - dataset[key].iloc[0,1])
+            dataset[key] = dataset[key].interpolate(method='linear')
         
-        if max(secs) > xmax: xmax = max(secs)
-        final_stds.append(std10[-1])
-        plt.scatter(secs, std10, s=4, alpha=0.4, color='steelblue')
+        final_pos[key[OBJ_SIZE_POS]][0].append(dataset[key]['apertures'].iloc[-1])
+        final_pos[key[OBJ_SIZE_POS]][1].append(dataset[key]['wrist_y'].iloc[-1])
     
-    print(xmin)
-    print(np.array(final_stds).min())
-    print(np.array(final_stds).max())
-    print(np.array(final_stds).mean())
-    print(np.array(final_stds).std())
-
-    plt.xlim(0,xmax)
-    plt.grid(color='lightgray', alpha=0.6)
-    plt.savefig('std10_apertures', dpi=100)
+    plt.figure()
+    plt.title('aperture endpoint for {:d} movements'.format(715 - ignored))
+    plt.boxplot([final_pos['S'][0], final_pos['M'][0], final_pos['L'][0]])
+    plt.xticks([1,2,3],['S','M','L'])
+    plt.xlabel('Object size')
+    plt.ylabel('aperture endpoint')
+    plt.savefig('aperture_movement_ends', dpi=100)
     plt.close()
 
     plt.figure()
-    plt.scatter(np.arange(len(final_stds)), final_stds, s=4, alpha=0.4, color='steelblue')
-    plt.grid(color='lightgray', alpha=0.6)
-    plt.savefig('std10_movement_ends', dpi=100)
+    plt.title('y-wrist endpoint for {:d} movements'.format(715 - ignored))
+    plt.boxplot([final_pos['S'][1], final_pos['M'][1], final_pos['L'][1]])
+    plt.xticks([1,2,3],['S','M','L'])
+    plt.xlabel('Object size')
+    plt.ylabel('y-wrist coordinate endpoint')
+    plt.savefig('ywrist_movement_ends', dpi=100)
     plt.close()
 
 def std_10(dataset):
