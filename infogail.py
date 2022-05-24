@@ -25,7 +25,7 @@ class Agent():
         env = Env()
 
         # generate actions for every current state
-        state_obsrv = env.reset(start) # reset environment state
+        state_obsrv = env.reset(code, start) # reset environment state
         code_tf = tf.constant(code)
         code_tf = tf.expand_dims(code_tf, axis=0)
 
@@ -34,8 +34,7 @@ class Agent():
             state_tf = tf.constant(state_obsrv)
             state_tf = tf.expand_dims(state_tf, axis=0)
             action_mu = models.generator.model([state_tf, code_tf], training=False)
-            action_mu = action_mu.numpy().reshape((action_mu.shape[1],))
-            # action_mu = tf.squeeze(action_mu).numpy()
+            action_mu = tf.squeeze(action_mu).numpy()
 
             s_traj.append(state_obsrv)
             a_traj.append(action_mu)
@@ -80,12 +79,12 @@ class InfoGAIL():
         # load data
         self.expert_data = read_expert()
         self.expert_data = extract_features(self.expert_data)
-        self.features, self.feature_size, self.expert_data, feat_len = extract_apertures_wrist_mdp(self.expert_data)
-        state_scaler = MinMaxScaler(feature_range=(-1,1))
-        action_scaler = MinMaxScaler(feature_range=(-1,1))
-        self.features['states'] = state_scaler.fit_transform(self.features['states'])
-        self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
-        self.start_pos, self.start_codes = extract_start_pos(self.features, self.feature_size, feat_len)
+        self.features, self.feature_size, self.expert_data, feat_width = extract_apertures_wrist_mdp(self.expert_data)
+        # state_scaler = MinMaxScaler(feature_range=(-1,1))
+        # action_scaler = MinMaxScaler(feature_range=(-1,1))
+        # self.features['states'] = state_scaler.fit_transform(self.features['states'])
+        # self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
+        self.start_pos, self.start_codes = extract_start_pos(self.features, self.feature_size, feat_width)
 
         generator_weight_path = ''
         if resume_training:
@@ -160,14 +159,34 @@ class InfoGAIL():
 
             # train discriminator
             # Sample state-action pairs χi ~ τi and χΕ ~ τΕ with the same batch size
-            expert_idx = np.arange(self.features['states'].shape[0])
-            np.random.shuffle(expert_idx)
-            shuffled_expert_states = self.features['states'][expert_idx, :]
-            shuffled_expert_actions = self.features['actions'][expert_idx, :]
+            if self.features['states'].shape[0] < generated_states.shape[0]:
+                expert_idx = np.arange(self.features['states'].shape[0])
+                np.random.shuffle(expert_idx)
+                shuffled_expert_states = self.features['states'][expert_idx, :]
+                shuffled_expert_actions = self.features['actions'][expert_idx, :]
 
-            generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
-            shuffled_generated_states = generated_states[generated_idx, :]
-            shuffled_generated_actions = generated_actions[generated_idx, :]
+                generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
+                shuffled_generated_states = generated_states[generated_idx, :]
+                shuffled_generated_actions = generated_actions[generated_idx, :]
+            elif self.features['states'].shape[0] > generated_states.shape[0]:
+                generated_idx = np.arange(generated_states.shape[0])
+                np.random.shuffle(generated_idx)
+                shuffled_generated_states = generated_states[generated_idx, :]
+                shuffled_generated_actions = generated_actions[generated_idx, :]
+
+                expert_idx = np.random.choice(self.features['states'].shape[0], generated_states.shape[0], replace=False)
+                shuffled_expert_states = self.features['states'][expert_idx, :]
+                shuffled_expert_actions = self.features['actions'][expert_idx, :]
+            else:
+                expert_idx = np.arange(self.features['states'].shape[0])
+                np.random.shuffle(expert_idx)
+                shuffled_expert_states = self.features['states'][expert_idx, :]
+                shuffled_expert_actions = self.features['actions'][expert_idx, :]
+
+                generated_idx = np.arange(generated_states.shape[0])
+                np.random.shuffle(generated_idx)
+                shuffled_generated_states = generated_states[generated_idx, :]
+                shuffled_generated_actions = generated_actions[generated_idx, :]
 
             shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float32)
             shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float32)
@@ -181,7 +200,12 @@ class InfoGAIL():
             if save_loss: self.disc_result.append(loss)
 
             # train posterior
-            generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
+            if self.features['states'].shape[0] < generated_states.shape[0]:
+                generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
+            else:
+                generated_idx = np.arange(generated_states.shape[0])
+                np.random.shuffle(generated_idx)
+
             shuffled_generated_states = generated_states[generated_idx, :]
             shuffled_generated_actions = generated_actions[generated_idx, :]
             shuffled_generated_codes = generated_codes[generated_idx, :]
@@ -218,7 +242,12 @@ class InfoGAIL():
             # train value net for next iter
             returns = np.expand_dims(np.concatenate([traj['returns'] for traj in trajectories]), axis=1)
 
-            generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
+            if self.features['states'].shape[0] < generated_states.shape[0]:
+                generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
+            else:
+                generated_idx = np.arange(generated_states.shape[0])
+                np.random.shuffle(generated_idx)
+                
             shuffled_generated_states = generated_states[generated_idx, :]
             shuffled_generated_codes = generated_codes[generated_idx, :]
             shuffled_returns = returns[generated_idx, :]
@@ -270,7 +299,7 @@ class InfoGAIL():
                 with open("./saved_models/trpo/model.yml", 'w') as f:
                     yaml.dump(yaml_conf, f, sort_keys=False, default_flow_style=False)
 
-models = Models(state_dims=5, action_dims=1, code_dims=3)
+models = Models(state_dims=15, action_dims=3, code_dims=3)
 
 # main
 def main():
