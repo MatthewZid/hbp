@@ -167,6 +167,71 @@ def count_nan_apertures_per(dataset):
     plt.savefig('count_nans_per', dpi=100)
     plt.close()
 
+def count_consecutive_nans(dataset):
+    ignored = 0
+    group_by_mode = {}
+    group_by_mode['S'] = []
+    group_by_mode['M'] = []
+    group_by_mode['L'] = []
+
+    for key in dataset.keys():
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        if nans.shape[0] > 0:
+            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0:
+                ignored += 1
+                continue
+
+        count_consecutive_nans = 0
+        for i in range(-2, -len(dataset[key]), -1):
+            if np.isnan(dataset[key]['apertures'].iloc[i]): count_consecutive_nans += 1
+            else: break
+        
+        group_by_mode[key[OBJ_SIZE_POS]].append((count_consecutive_nans / len(dataset[key])) * 100.0)
+    
+    plt.figure()
+    plt.title('Last consecutive aperture NaN percentage for {:d} movements'.format(715 - ignored))
+    plt.xlabel('Movement No.')
+    plt.ylabel('Consecutive NaN count (%)')
+    for sz in ['S','M','L']:
+        plt.bar(np.arange(len(group_by_mode[sz])), group_by_mode[sz])
+    plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
+    plt.savefig('last_consecutive_nans', dpi=100)
+    plt.close()
+
+def max_consecutive_nans(dataset):
+    ignored = 0
+    group_by_mode = {}
+    group_by_mode['S'] = []
+    group_by_mode['M'] = []
+    group_by_mode['L'] = []
+
+    for key in dataset.keys():
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        if nans.shape[0] > 0:
+            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0:
+                ignored += 1
+                continue
+
+        count_consecutive_nans = 0
+        max_nan = np.NINF
+        for i in range(-2, -len(dataset[key]), -1):
+            if np.isnan(dataset[key]['apertures'].iloc[i]): count_consecutive_nans += 1
+            else:
+                if count_consecutive_nans > max_nan: max_nan = count_consecutive_nans
+                count_consecutive_nans = 0
+        
+        group_by_mode[key[OBJ_SIZE_POS]].append((max_nan / len(dataset[key])) * 100.0)
+    
+    plt.figure()
+    plt.title('Max consecutive aperture NaN percentage for {:d} movements'.format(715 - ignored))
+    plt.xlabel('Movement No.')
+    plt.ylabel('Max consecutive NaN count (%)')
+    for sz in ['S','M','L']:
+        plt.bar(np.arange(len(group_by_mode[sz])), group_by_mode[sz])
+    plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
+    plt.savefig('max_consecutive_nans', dpi=100)
+    plt.close()
+
 def interpolated_boxplot(dataset):
     group_by_mode = {}
     group_by_mode['S'] = [[],[],[],[],[]]
