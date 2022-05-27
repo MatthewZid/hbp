@@ -80,10 +80,10 @@ class InfoGAIL():
         self.expert_data = read_expert()
         self.expert_data = extract_features(self.expert_data)
         self.features, self.feature_size, self.expert_data, feat_width = extract_apertures_wrist_mdp(self.expert_data)
-        # state_scaler = MinMaxScaler(feature_range=(-1,1))
-        # action_scaler = MinMaxScaler(feature_range=(-1,1))
-        # self.features['states'] = state_scaler.fit_transform(self.features['states'])
-        # self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
+        state_scaler = MinMaxScaler(feature_range=(-1,1))
+        action_scaler = MinMaxScaler(feature_range=(-1,1))
+        self.features['states'] = state_scaler.fit_transform(self.features['states'])
+        self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
         self.start_pos, self.start_codes = extract_start_pos(self.features, self.feature_size, feat_width)
 
         generator_weight_path = ''
