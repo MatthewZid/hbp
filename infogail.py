@@ -63,7 +63,7 @@ class Agent():
             time.sleep(1)
 
 class InfoGAIL():
-    def __init__(self, batch_size=2048, code_batch=889, episodes=5000, gamma=0.997, lam=0.97):
+    def __init__(self, batch_size=2000, code_batch=500, episodes=5000, gamma=0.997, lam=0.97):
         self.batch = batch_size
         self.code_batch = code_batch
         self.episodes = episodes
@@ -139,10 +139,15 @@ class InfoGAIL():
     def train(self, agent):
         for episode in trange(self.starting_episode, self.episodes, desc="Episode"):
             # Sample a batch of latent codes: ci ∼ p(c)
+            pick = np.random.choice(self.start_codes.shape[0], self.code_batch)
+            sampled_codes = self.start_codes[pick]
+            sampled_pos = self.start_pos[pick]
+            starting_pos_code_pairs = list(zip(sampled_codes, sampled_pos))
+
             # Sample trajectories: τi ∼ πθi(ci), with the latent code fixed during each rollout
             trajectories = []
             with mp.Pool(mp.cpu_count()) as pool:
-                trajectories = pool.starmap(agent.run, list(zip(self.start_codes, self.start_pos)))
+                trajectories = pool.starmap(agent.run, starting_pos_code_pairs)
             
             # Sample from buffer
             # for traj in trajectories:

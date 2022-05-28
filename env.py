@@ -32,7 +32,7 @@ class Env():
 		reward = 0.0
 
 		# if self.n_step >= 129 or abs(self.p[0]) >= 1 or abs(self.p[1]) >= 1:
-		if self.p[-1] >= self.stop_crit:	# must determine stop criteria with object distance (here: if y-wrist coord >= stop_crit, stop)
+		if abs(self.p[-1]) >= self.stop_crit:	# must determine stop criteria with object distance (here: if y-wrist coord >= stop_crit, stop)
 			done = True
 		else:
 			done = False
@@ -54,8 +54,8 @@ class Env():
 				self.state[i,j] = self.p[j]
 		
 		# set trajectory stop criteria (y-wrist)
-		if code[0] == 1: self.stop_crit = 168.6 # small
-		elif code[1] == 1: self.stop_crit = 165.11 # medium
-		elif code[2] == 1: self.stop_crit = 168.55 # large
+		if code[0] == 1: self.stop_crit = 0.93 # small
+		elif code[1] == 1: self.stop_crit = 0.96 # medium
+		elif code[2] == 1: self.stop_crit = 0.734 # large
 
 		return np.copy(self.state.flatten())

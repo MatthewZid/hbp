@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import math
 from scipy import signal
+from sklearn.preprocessing import MinMaxScaler
 
 OBJ_SIZE_POS = 4
 PROB_THRESHOLD = 0.6
@@ -341,7 +342,7 @@ def movement_end(dataset):
         final_pos[key[OBJ_SIZE_POS]][1].append(dataset[key]['wrist_y'].iloc[-1])
     
     plt.figure()
-    plt.title('aperture endpoint for {:d} movements'.format(715 - ignored))
+    plt.title('Aperture endpoint for {:d} movements'.format(715 - ignored))
     plt.boxplot([final_pos['S'][0], final_pos['M'][0], final_pos['L'][0]])
     plt.xticks([1,2,3],['S','M','L'])
     plt.xlabel('Object size')
@@ -351,6 +352,44 @@ def movement_end(dataset):
 
     plt.figure()
     plt.title('y-wrist endpoint for {:d} movements'.format(715 - ignored))
+    plt.boxplot([final_pos['S'][1], final_pos['M'][1], final_pos['L'][1]])
+    plt.xticks([1,2,3],['S','M','L'])
+    plt.xlabel('Object size')
+    plt.ylabel('y-wrist coordinate endpoint')
+    plt.savefig('ywrist_movement_ends', dpi=100)
+    plt.close()
+
+def norm_movement_ends(features, feat_size, feat_col_len):
+    size_map = {'0': 'S', '1': 'M', '2': 'L'}
+    final_pos = {}
+    final_pos['S'] = [[], []]
+    final_pos['M'] = [[], []]
+    final_pos['L'] = [[], []]
+    pos = 0
+
+    # normalize features
+    state_scaler = MinMaxScaler(feature_range=(-1,1))
+    action_scaler = MinMaxScaler(feature_range=(-1,1))
+    features['states'] = state_scaler.fit_transform(features['states'])
+    features['actions'] = action_scaler.fit_transform(features['actions'])
+
+    for sz in feat_size:
+        key = str(np.where(features['codes'][pos] == 1)[0][0])
+        final_pos[size_map[key]][0].append(features['states'][pos+sz-1, -feat_col_len] + features['actions'][pos+sz-1, 0]) # aperture
+        final_pos[size_map[key]][1].append(features['states'][pos+sz-1, -1] + features['actions'][pos+sz-1, -1]) # y-wrist
+        pos += sz
+    
+    plt.figure()
+    plt.title('Normalized aperture endpoint for {:d} movements'.format(feat_size.shape[0]))
+    plt.boxplot([final_pos['S'][0], final_pos['M'][0], final_pos['L'][0]])
+    plt.xticks([1,2,3],['S','M','L'])
+    plt.xlabel('Object size')
+    plt.ylabel('aperture endpoint')
+    plt.savefig('aperture_movement_ends', dpi=100)
+    plt.close()
+
+    plt.figure()
+    plt.title('Normalized y-wrist endpoint for {:d} movements'.format(feat_size.shape[0]))
     plt.boxplot([final_pos['S'][1], final_pos['M'][1], final_pos['L'][1]])
     plt.xticks([1,2,3],['S','M','L'])
     plt.xlabel('Object size')
