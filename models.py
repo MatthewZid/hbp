@@ -25,7 +25,7 @@ class Generator():
         initializer = tf.keras.initializers.GlorotNormal()
         states = Input(shape=self.state_dims)
         # default: x = Dense(260, kernel_initializer=initializer, activation='tanh')(states)
-        x = Dense(250, kernel_initializer=initializer, activation='tanh')(states)
+        x = Dense(128, kernel_initializer=initializer, activation='tanh')(states)
         # x = LeakyReLU()(x)
         codes = Input(shape=self.code_dims)
         c = Dense(64, kernel_initializer=initializer, activation='tanh')(codes)

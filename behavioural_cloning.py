@@ -13,7 +13,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tqdm import trange
 
 BATCH_SIZE = 256
-EPOCHS = 200
+EPOCHS = 100
 K = 10
 show_fig = True
 
@@ -21,7 +21,7 @@ def create_generator(state_dims, action_dims, code_dims):
     initializer = tf.keras.initializers.GlorotNormal()
     states = Input(shape=state_dims)
     # default: x = Dense(260, kernel_initializer=initializer, activation='tanh')(states)
-    x = Dense(250, kernel_initializer=initializer, activation='tanh')(states)
+    x = Dense(128, kernel_initializer=initializer, activation='tanh')(states)
     # x = LeakyReLU()(x)
     codes = Input(shape=code_dims)
     c = Dense(64, kernel_initializer=initializer, activation='tanh')(codes)
@@ -35,7 +35,7 @@ def create_generator(state_dims, action_dims, code_dims):
 # load data
 expert_data = read_expert()
 expert_data = extract_features(expert_data)
-features, _, _, _ = extract_apertures_wrist_mdp(expert_data)
+features, _, _, _ = extract_norm_apertures_wrist_mdp(expert_data)
 
 def train(train_states, train_actions, train_codes, val_states, val_actions, val_codes):
     train_states = tf.convert_to_tensor(train_states, dtype=tf.float32)
@@ -118,13 +118,13 @@ def train_kfold():
         codes_train, codes_test = train_codes[train_index], train_codes[test_index]
 
         # normalize states/actions
-        state_normalizer = MinMaxScaler(feature_range=(-1,1))
-        action_normalizer = MinMaxScaler(feature_range=(-1,1))
+        # state_normalizer = MinMaxScaler(feature_range=(-1,1))
+        # action_normalizer = MinMaxScaler(feature_range=(-1,1))
 
-        states_train = state_normalizer.fit_transform(states_train)
-        actions_train = action_normalizer.fit_transform(actions_train)
-        states_test = state_normalizer.transform(states_test)
-        actions_test = action_normalizer.transform(actions_test)
+        # states_train = state_normalizer.fit_transform(states_train)
+        # actions_train = action_normalizer.fit_transform(actions_train)
+        # states_test = state_normalizer.transform(states_test)
+        # actions_test = action_normalizer.transform(actions_test)
 
         generator, result_train, result_val = train(states_train, actions_train, codes_train, states_test, actions_test, codes_test)
         avg_train_loss += np.array(result_train) / float(K)
@@ -135,13 +135,13 @@ def train_kfold():
             best_gen = generator
     
     # also normalize test data based on train data distribution
-    state_normalizer = MinMaxScaler(feature_range=(-1,1))
-    action_normalizer = MinMaxScaler(feature_range=(-1,1))
+    # state_normalizer = MinMaxScaler(feature_range=(-1,1))
+    # action_normalizer = MinMaxScaler(feature_range=(-1,1))
 
-    train_states = state_normalizer.fit_transform(train_states)
-    train_actions = action_normalizer.fit_transform(train_actions)
-    test_states = state_normalizer.transform(test_states)
-    test_actions = action_normalizer.transform(test_actions)
+    # train_states = state_normalizer.fit_transform(train_states)
+    # train_actions = action_normalizer.fit_transform(train_actions)
+    # test_states = state_normalizer.transform(test_states)
+    # test_actions = action_normalizer.transform(test_actions)
 
     test_actions_mu = best_gen([test_states, test_codes], training=False)
     test_gen_loss = mse(test_actions, test_actions_mu)
@@ -165,13 +165,13 @@ def simple_train():
     val_codes = shuffled_expert_codes[train_ratio:, :]
 
     # normalize states/actions
-    state_normalizer = MinMaxScaler(feature_range=(-1,1))
-    action_normalizer = MinMaxScaler(feature_range=(-1,1))
+    # state_normalizer = MinMaxScaler(feature_range=(-1,1))
+    # action_normalizer = MinMaxScaler(feature_range=(-1,1))
 
-    train_states = state_normalizer.fit_transform(train_states)
-    train_actions = action_normalizer.fit_transform(train_actions)
-    val_states = state_normalizer.transform(val_states)
-    val_actions = action_normalizer.transform(val_actions)
+    # train_states = state_normalizer.fit_transform(train_states)
+    # train_actions = action_normalizer.fit_transform(train_actions)
+    # val_states = state_normalizer.transform(val_states)
+    # val_actions = action_normalizer.transform(val_actions)
 
     return train(train_states, train_actions, train_codes, val_states, val_actions, val_codes)
 
