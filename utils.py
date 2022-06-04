@@ -14,6 +14,7 @@ OBJ_SIZE_POS = 4
 PROB_THRESHOLD = 0.6
 DIST_THRESHOLD = 10
 WINDOW = 9
+MOVEMENTS = 715
 
 improved = 0
 save_loss = True
@@ -135,7 +136,7 @@ def count_nan_apertures(dataset):
     
     for i in range(len(compl_per)):
         plt.figure()
-        plt.title(str(int(compl_per[i]))+'% interval of movement (total '+str(715 - ignored)+')')
+        plt.title(str(int(compl_per[i]))+'% interval of movement (total '+str(MOVEMENTS - ignored)+')')
         plt.xlabel('Object size')
         plt.ylabel('Rejected aperture (NaN) count')
         plt.bar(['S','M','L'], [group_by_mode['S'][i], group_by_mode['M'][i], group_by_mode['L'][i]])
@@ -159,7 +160,7 @@ def count_nan_apertures_per(dataset):
         group_by_mode[key[OBJ_SIZE_POS]].append((nans.shape[0] / len(dataset[key])) * 100.0)
     
     plt.figure()
-    plt.title('Aperture NaN percentage for {:d} movements'.format(715 - ignored))
+    plt.title('Aperture NaN percentage for {:d} movements'.format(MOVEMENTS - ignored))
     plt.xlabel('Movement No.')
     plt.ylabel('NaN count (%)')
     for sz in ['S','M','L']:
@@ -190,7 +191,7 @@ def count_consecutive_nans(dataset):
         group_by_mode[key[OBJ_SIZE_POS]].append((count_consecutive_nans / len(dataset[key])) * 100.0)
     
     plt.figure()
-    plt.title('Last consecutive aperture NaN percentage for {:d} movements'.format(715 - ignored))
+    plt.title('Last consecutive aperture NaN percentage for {:d} movements'.format(MOVEMENTS - ignored))
     plt.xlabel('Movement No.')
     plt.ylabel('Consecutive NaN count (%)')
     for sz in ['S','M','L']:
@@ -224,7 +225,7 @@ def max_consecutive_nans(dataset):
         group_by_mode[key[OBJ_SIZE_POS]].append((max_nan / len(dataset[key])) * 100.0)
     
     plt.figure()
-    plt.title('Max consecutive aperture NaN percentage for {:d} movements'.format(715 - ignored))
+    plt.title('Max consecutive aperture NaN percentage for {:d} movements'.format(MOVEMENTS - ignored))
     plt.xlabel('Movement No.')
     plt.ylabel('Max consecutive NaN count (%)')
     for sz in ['S','M','L']:
@@ -402,7 +403,7 @@ def movement_end(dataset):
         final_pos[key[OBJ_SIZE_POS]][1].append(dataset[key]['wrist_y'].iloc[-1])
     
     plt.figure()
-    plt.title('Aperture endpoint for {:d} movements'.format(715 - ignored))
+    plt.title('Aperture endpoint for {:d} movements'.format(MOVEMENTS - ignored))
     plt.boxplot([final_pos['S'][0], final_pos['M'][0], final_pos['L'][0]])
     plt.xticks([1,2,3],['S','M','L'])
     plt.xlabel('Object size')
@@ -411,7 +412,7 @@ def movement_end(dataset):
     plt.close()
 
     plt.figure()
-    plt.title('y-wrist endpoint for {:d} movements'.format(715 - ignored))
+    plt.title('y-wrist endpoint for {:d} movements'.format(MOVEMENTS - ignored))
     plt.boxplot([final_pos['S'][1], final_pos['M'][1], final_pos['L'][1]])
     plt.xticks([1,2,3],['S','M','L'])
     plt.xlabel('Object size')

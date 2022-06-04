@@ -3,6 +3,8 @@ import numpy as np
 import pickle as pkl
 from matplotlib import pyplot as plt
 
+MAX_FRAMES = 56
+
 class Env():
 	#-------------------------
 	# Constructor
@@ -32,7 +34,7 @@ class Env():
 		reward = 0.0
 
 		# if self.n_step >= 129 or abs(self.p[0]) >= 1 or abs(self.p[1]) >= 1:
-		if abs(self.p[-1]) >= self.stop_crit or self.n_step >= 56:	# must determine stop criteria with object distance (here: if y-wrist coord >= stop_crit, stop)
+		if abs(self.p[-1]) >= self.stop_crit or self.n_step >= MAX_FRAMES:	# must determine stop criteria with object distance (here: if y-wrist coord >= stop_crit, stop)
 			done = True
 		else:
 			done = False
