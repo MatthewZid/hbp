@@ -63,7 +63,7 @@ class Agent():
             time.sleep(1)
 
 class InfoGAIL():
-    def __init__(self, batch_size=2000, code_batch=500, episodes=5000, gamma=0.997, lam=0.97):
+    def __init__(self, batch_size=2000, code_batch=500, episodes=10000, gamma=0.997, lam=0.97):
         self.batch = batch_size
         self.code_batch = code_batch
         self.episodes = episodes
