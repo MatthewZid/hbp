@@ -21,7 +21,7 @@ save_loss = True
 save_models = True
 resume_training = False
 use_ppo = False
-LOGSTD = tf.math.log(0.005)
+LOGSTD = tf.math.log(0.008)
 SPEED = 0.02
 BUFFER_RATIO = 0.67
 
@@ -311,63 +311,139 @@ def interpolated_boxplot(dataset):
 
 #     return features, feature_size, dataset, 3
 
+# def extract_norm_apertures_wrist_mdp(dataset):
+#     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
+#     features = {}
+#     features['states'] = []
+#     features['actions'] = []
+#     features['codes'] = []
+#     feature_size = []
+#     data = []
+#     new_feature_size = []
+    
+
+#     for key in dataset.keys():
+#         nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+#         if nans.shape[0] > 0:
+#             if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
+#             dataset[key] = dataset[key].interpolate(method='linear')
+        
+#         points = pd.concat([dataset[key]['apertures'], dataset[key]['wrist_x'], dataset[key]['wrist_y']], axis=1).to_numpy()
+#         # features['actions'].append(points[1:] - points[:-1])
+#         # points = points[:-1, :]
+#         features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0])]))
+#         data.append(points)
+#         feature_size.append(points.shape[0])
+    
+#     data = np.concatenate(data, axis=0)
+#     # features['actions'] = np.concatenate(features['actions'], axis=0)
+#     feature_size = np.array(feature_size, dtype=int)
+
+#     state_scaler = MinMaxScaler(feature_range=(-1,1))
+#     # action_scaler = MinMaxScaler(feature_range=(-1,1))
+#     data = state_scaler.fit_transform(data)
+#     # features['actions'] = action_scaler.fit_transform(features['actions'])
+
+#     pos = 0
+#     for sz in feature_size:
+#         window = np.zeros((5,data.shape[1]), dtype=np.float64)
+#         for i in range(5):
+#             window[i,0] = data[pos,0]
+#             window[i,1] = data[pos,1]
+#             window[i,2] = data[pos,2]
+#         states = [np.copy(window.flatten())]
+#         features['actions'].append(data[pos+1:pos+sz, :] - data[pos:pos+sz-1, :])
+
+#         for i in range(pos+1, pos+sz-1):
+#             for j in range(4): window[j,:] = window[j+1,:]
+#             window[4,:] = data[i,:]
+#             states.append(np.copy(window.flatten()))
+        
+#         states = np.array(states, dtype=np.float64)
+#         new_feature_size.append(states.shape[0])
+#         features['states'].append(states)
+#         pos += sz
+    
+#     features['states'] = np.concatenate(features['states'], axis=0)
+#     features['actions'] = np.concatenate(features['actions'], axis=0)
+#     features['codes'] = np.concatenate(features['codes'], axis=0)
+#     new_feature_size = np.array(new_feature_size, dtype=int)
+
+#     return features, new_feature_size, dataset, 3
+
 def extract_norm_apertures_wrist_mdp(dataset):
     one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
     features = {}
-    features['states'] = []
-    features['actions'] = []
-    features['codes'] = []
-    feature_size = []
-    data = []
-    new_feature_size = []
-    
+    features['train'] = {}
+    features['test'] = {}
+    feature_size = {}
+    new_feature_size = {}
+    data = {}
+
+    for tp in ['train', 'test']:
+        features[tp]['states'] = []
+        features[tp]['actions'] = []
+        features[tp]['codes'] = []
+
+        feature_size[tp] = []
+        new_feature_size[tp] = []
+        data[tp] = []
+
+    new_dataset = {}
 
     for key in dataset.keys():
         nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
         if nans.shape[0] > 0:
             if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
             dataset[key] = dataset[key].interpolate(method='linear')
-        
-        points = pd.concat([dataset[key]['apertures'], dataset[key]['wrist_x'], dataset[key]['wrist_y']], axis=1).to_numpy()
-        # features['actions'].append(points[1:] - points[:-1])
-        # points = points[:-1, :]
-        features['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0])]))
-        data.append(points)
-        feature_size.append(points.shape[0])
+        new_dataset[key] = dataset[key].copy()
     
-    data = np.concatenate(data, axis=0)
-    # features['actions'] = np.concatenate(features['actions'], axis=0)
-    feature_size = np.array(feature_size, dtype=int)
+    train_ratio = int((80 * len(new_dataset.keys())) / 100.0)
+    np_keys = np.array(list(new_dataset.keys()))
+    np.random.shuffle(np_keys)
+    keys = {}
+    keys['train'] = np_keys[:train_ratio]
+    keys['test'] = np_keys[train_ratio:]
+    
+    for tp in ['train', 'test']:
+        for key in keys[tp]:
+            points = pd.concat([new_dataset[key]['apertures'], new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y']], axis=1).to_numpy()
+            features[tp]['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0] - 1)]))
+            data[tp].append(points)
+            feature_size[tp].append(points.shape[0])
+    
+        data[tp] = np.concatenate(data[tp], axis=0)
+        feature_size[tp] = np.array(feature_size[tp], dtype=int)
 
     state_scaler = MinMaxScaler(feature_range=(-1,1))
-    # action_scaler = MinMaxScaler(feature_range=(-1,1))
-    data = state_scaler.fit_transform(data)
-    # features['actions'] = action_scaler.fit_transform(features['actions'])
+    data['train'] = state_scaler.fit_transform(data['train'])
+    data['test'] = state_scaler.transform(data['test'])
 
-    pos = 0
-    for sz in feature_size:
-        window = np.zeros((5,data.shape[1]), dtype=np.float64)
-        for i in range(5):
-            window[i,0] = data[pos,0]
-            window[i,1] = data[pos,1]
-            window[i,2] = data[pos,2]
-        states = [np.copy(window.flatten())]
-        features['actions'].append(data[pos+1:pos+sz, :] - data[pos:pos+sz-1, :])
+    for tp in ['train', 'test']:
+        pos = 0
+        for sz in feature_size[tp]:
+            window = np.zeros((5,data[tp].shape[1]), dtype=np.float64)
+            for i in range(5):
+                window[i,0] = data[tp][pos,0]
+                window[i,1] = data[tp][pos,1]
+                window[i,2] = data[tp][pos,2]
+            states = [np.copy(window.flatten())]
+            features[tp]['actions'].append(data[tp][pos+1:pos+sz, :] - data[tp][pos:pos+sz-1, :])
 
-        for i in range(pos+1, pos+sz-1):
-            for j in range(4): window[j,:] = window[j+1,:]
-            window[4,:] = data[i,:]
-            states.append(np.copy(window.flatten()))
+            for i in range(pos+1, pos+sz-1):
+                for j in range(4): window[j,:] = window[j+1,:]
+                window[4,:] = data[tp][i,:]
+                states.append(np.copy(window.flatten()))
+            
+            states = np.array(states, dtype=np.float64)
+            new_feature_size[tp].append(states.shape[0])
+            features[tp]['states'].append(states)
+            pos += sz
         
-        states = np.array(states, dtype=np.float64)
-        new_feature_size.append(states.shape[0])
-        features['states'].append(states)
-        pos += sz
-    
-    features['states'] = np.concatenate(features['states'], axis=0)
-    features['actions'] = np.concatenate(features['actions'], axis=0)
-    features['codes'] = np.concatenate(features['codes'], axis=0)
-    new_feature_size = np.array(new_feature_size, dtype=int)
+        features[tp]['states'] = np.concatenate(features[tp]['states'], axis=0)
+        features[tp]['actions'] = np.concatenate(features[tp]['actions'], axis=0)
+        features[tp]['codes'] = np.concatenate(features[tp]['codes'], axis=0)
+        new_feature_size[tp] = np.array(new_feature_size[tp], dtype=int)
 
     return features, new_feature_size, dataset, 3
 

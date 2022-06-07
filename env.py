@@ -9,7 +9,7 @@ class Env():
 	#-------------------------
 	# Constructor
 	#-------------------------
-	def __init__(self, speed=0.02, sigma1=0.01, sigma2=0.005, max_step=512):
+	def __init__(self, speed=0.02, sigma1=0.01, sigma2=0.008, max_step=512):
 		self.state    = None
 		self.max_step = max_step
 		self.n_step   = 1

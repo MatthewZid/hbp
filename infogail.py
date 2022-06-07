@@ -80,11 +80,6 @@ class InfoGAIL():
         self.expert_data = read_expert()
         self.expert_data = extract_features(self.expert_data)
         self.features, self.feature_size, self.expert_data, feat_width = extract_norm_apertures_wrist_mdp(self.expert_data)
-        # state_scaler = MinMaxScaler(feature_range=(-1,1))
-        # action_scaler = MinMaxScaler(feature_range=(-1,1))
-        # self.features['states'] = state_scaler.fit_transform(self.features['states'])
-        # self.features['actions'] = action_scaler.fit_transform(self.features['actions'])
-        self.start_pos, self.start_codes = extract_start_pos(self.features, self.feature_size, feat_width)
 
         generator_weight_path = ''
         if resume_training:
@@ -104,6 +99,8 @@ class InfoGAIL():
             generator_weight_path = './saved_models/bc/generator.h5'
         
         models.generator.model.load_weights(generator_weight_path)
+
+        self.start_pos, self.start_codes = extract_start_pos(self.features['train'], self.feature_size['train'], feat_width)
         print('\nSetup ready!')
     
     def __saveplot(self, x, y, episode, element='element', mode='plot'):
@@ -164,29 +161,29 @@ class InfoGAIL():
 
             # train discriminator
             # Sample state-action pairs χi ~ τi and χΕ ~ τΕ with the same batch size
-            if self.features['states'].shape[0] < generated_states.shape[0]:
-                expert_idx = np.arange(self.features['states'].shape[0])
+            if self.features['train']['states'].shape[0] < generated_states.shape[0]:
+                expert_idx = np.arange(self.features['train']['states'].shape[0])
                 np.random.shuffle(expert_idx)
-                shuffled_expert_states = self.features['states'][expert_idx, :]
-                shuffled_expert_actions = self.features['actions'][expert_idx, :]
+                shuffled_expert_states = self.features['train']['states'][expert_idx, :]
+                shuffled_expert_actions = self.features['train']['actions'][expert_idx, :]
 
-                generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
+                generated_idx = np.random.choice(generated_states.shape[0], self.features['train']['states'].shape[0], replace=False)
                 shuffled_generated_states = generated_states[generated_idx, :]
                 shuffled_generated_actions = generated_actions[generated_idx, :]
-            elif self.features['states'].shape[0] > generated_states.shape[0]:
+            elif self.features['train']['states'].shape[0] > generated_states.shape[0]:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
                 shuffled_generated_states = generated_states[generated_idx, :]
                 shuffled_generated_actions = generated_actions[generated_idx, :]
 
-                expert_idx = np.random.choice(self.features['states'].shape[0], generated_states.shape[0], replace=False)
-                shuffled_expert_states = self.features['states'][expert_idx, :]
-                shuffled_expert_actions = self.features['actions'][expert_idx, :]
+                expert_idx = np.random.choice(self.features['train']['states'].shape[0], generated_states.shape[0], replace=False)
+                shuffled_expert_states = self.features['train']['states'][expert_idx, :]
+                shuffled_expert_actions = self.features['train']['actions'][expert_idx, :]
             else:
-                expert_idx = np.arange(self.features['states'].shape[0])
+                expert_idx = np.arange(self.features['train']['states'].shape[0])
                 np.random.shuffle(expert_idx)
-                shuffled_expert_states = self.features['states'][expert_idx, :]
-                shuffled_expert_actions = self.features['actions'][expert_idx, :]
+                shuffled_expert_states = self.features['train']['states'][expert_idx, :]
+                shuffled_expert_actions = self.features['train']['actions'][expert_idx, :]
 
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
@@ -205,8 +202,8 @@ class InfoGAIL():
             if save_loss: self.disc_result.append(loss)
 
             # train posterior
-            if self.features['states'].shape[0] < generated_states.shape[0]:
-                generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
+            if self.features['train']['states'].shape[0] < generated_states.shape[0]:
+                generated_idx = np.random.choice(generated_states.shape[0], self.features['train']['states'].shape[0], replace=False)
             else:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
@@ -247,8 +244,8 @@ class InfoGAIL():
             # train value net for next iter
             returns = np.expand_dims(np.concatenate([traj['returns'] for traj in trajectories]), axis=1)
 
-            if self.features['states'].shape[0] < generated_states.shape[0]:
-                generated_idx = np.random.choice(generated_states.shape[0], self.features['states'].shape[0], replace=False)
+            if self.features['train']['states'].shape[0] < generated_states.shape[0]:
+                generated_idx = np.random.choice(generated_states.shape[0], self.features['train']['states'].shape[0], replace=False)
             else:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
@@ -298,7 +295,11 @@ class InfoGAIL():
                     'gen_loss': self.gen_result,
                     'disc_loss': self.disc_result,
                     'post_loss': self.post_result,
-                    'value_loss': self.value_result
+                    'value_loss': self.value_result,
+                    'train_features': self.features['train'].tolist(),
+                    'test_features': self.features['test'].tolist(),
+                    'train_feat_size': self.feature_size['train'].tolist(),
+                    'test_feat_size': self.feature_size['test'].tolist()
                 }
                 
                 with open("./saved_models/trpo/model.yml", 'w') as f:

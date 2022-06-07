@@ -52,7 +52,7 @@ def train(train_states, train_actions, train_codes, val_states, val_actions, val
     val_data = val_data.batch(batch_size=BATCH_SIZE)
 
     # train
-    generator = create_generator(features['states'].shape[1], features['actions'].shape[1], features['codes'].shape[1])
+    generator = create_generator(features['train']['states'].shape[1], features['train']['actions'].shape[1], features['train']['codes'].shape[1])
 
     # gen_optimizer = tf.keras.optimizers.SGD(learning_rate=1e-4)
     gen_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
@@ -98,33 +98,10 @@ def train_kfold():
     best_gen = None
     mse = tf.keras.losses.MeanSquaredError()
 
-    idx = np.arange(features['states'].shape[0])
-    np.random.shuffle(idx)
-    shuffled_expert_states = features['states'][idx]
-    shuffled_expert_actions = features['actions'][idx]
-    shuffled_expert_codes = features['codes'][idx]
-
-    train_ratio = int((80*features['states'].shape[0])/100.0)
-    train_states = shuffled_expert_states[0:train_ratio, :]
-    test_states = shuffled_expert_states[train_ratio:, :]
-    train_actions = shuffled_expert_actions[0:train_ratio, :]
-    test_actions = shuffled_expert_actions[train_ratio:, :]
-    train_codes = shuffled_expert_codes[0:train_ratio, :]
-    test_codes = shuffled_expert_codes[train_ratio:, :]
-
-    for train_index, test_index in kf.split(train_states):
-        states_train, states_test = train_states[train_index], train_states[test_index]
-        actions_train, actions_test = train_actions[train_index], train_actions[test_index]
-        codes_train, codes_test = train_codes[train_index], train_codes[test_index]
-
-        # normalize states/actions
-        # state_normalizer = MinMaxScaler(feature_range=(-1,1))
-        # action_normalizer = MinMaxScaler(feature_range=(-1,1))
-
-        # states_train = state_normalizer.fit_transform(states_train)
-        # actions_train = action_normalizer.fit_transform(actions_train)
-        # states_test = state_normalizer.transform(states_test)
-        # actions_test = action_normalizer.transform(actions_test)
+    for train_index, test_index in kf.split(features['train']['states']):
+        states_train, states_test = features['train']['states'][train_index], features['train']['states'][test_index]
+        actions_train, actions_test = features['train']['actions'][train_index], features['train']['actions'][test_index]
+        codes_train, codes_test = features['train']['codes'][train_index], features['train']['codes'][test_index]
 
         generator, result_train, result_val = train(states_train, actions_train, codes_train, states_test, actions_test, codes_test)
         avg_train_loss += np.array(result_train) / float(K)
@@ -133,47 +110,14 @@ def train_kfold():
         if (sum(result_val)/float(len(result_val))) < best_avg_loss:
             best_avg_loss = sum(result_val)/float(len(result_val))
             best_gen = generator
-    
-    # also normalize test data based on train data distribution
-    # state_normalizer = MinMaxScaler(feature_range=(-1,1))
-    # action_normalizer = MinMaxScaler(feature_range=(-1,1))
 
-    # train_states = state_normalizer.fit_transform(train_states)
-    # train_actions = action_normalizer.fit_transform(train_actions)
-    # test_states = state_normalizer.transform(test_states)
-    # test_actions = action_normalizer.transform(test_actions)
-
-    test_actions_mu = best_gen([test_states, test_codes], training=False)
-    test_gen_loss = mse(test_actions, test_actions_mu)
+    test_actions_mu = best_gen([features['test']['states'], features['test']['codes']], training=False)
+    test_gen_loss = mse(features['test']['actions'], test_actions_mu)
 
     return best_gen, avg_train_loss, avg_val_loss, test_gen_loss
 
 def simple_train():
-    # pretrain with behavioural cloning
-    idx = np.arange(features['states'].shape[0])
-    np.random.shuffle(idx)
-    shuffled_expert_states = features['states'][idx]
-    shuffled_expert_actions = features['actions'][idx]
-    shuffled_expert_codes = features['codes'][idx]
-
-    train_ratio = int((80*features['states'].shape[0])/100.0)
-    train_states = shuffled_expert_states[0:train_ratio, :]
-    val_states = shuffled_expert_states[train_ratio:, :]
-    train_actions = shuffled_expert_actions[0:train_ratio, :]
-    val_actions = shuffled_expert_actions[train_ratio:, :]
-    train_codes = shuffled_expert_codes[0:train_ratio, :]
-    val_codes = shuffled_expert_codes[train_ratio:, :]
-
-    # normalize states/actions
-    # state_normalizer = MinMaxScaler(feature_range=(-1,1))
-    # action_normalizer = MinMaxScaler(feature_range=(-1,1))
-
-    # train_states = state_normalizer.fit_transform(train_states)
-    # train_actions = action_normalizer.fit_transform(train_actions)
-    # val_states = state_normalizer.transform(val_states)
-    # val_actions = action_normalizer.transform(val_actions)
-
-    return train(train_states, train_actions, train_codes, val_states, val_actions, val_codes)
+    return train(features['train']['states'], features['train']['actions'], features['train']['codes'], features['test']['states'], features['test']['actions'], features['test']['codes'])
 
 generator = None
 result_test = None
