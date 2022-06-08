@@ -44,9 +44,9 @@ class Agent():
             state_obsrv, done = env.step(action_mu)
 
             if done:
-                s_traj = np.array(s_traj, dtype=np.float32)
-                a_traj = np.array(a_traj, dtype=np.float32)
-                c_traj = np.array(c_traj, dtype=np.float32)
+                s_traj = np.array(s_traj, dtype=np.float64)
+                a_traj = np.array(a_traj, dtype=np.float64)
+                c_traj = np.array(c_traj, dtype=np.float64)
                 break
         
         return (s_traj, a_traj, c_traj)
@@ -75,33 +75,6 @@ class InfoGAIL():
         self.post_result = []
         self.value_result = []
         self.total_rewards = []
-
-        # load data
-        self.expert_data = read_expert()
-        self.expert_data = extract_features(self.expert_data)
-        self.features, self.feature_size, self.expert_data, feat_width = extract_norm_apertures_wrist_mdp(self.expert_data)
-
-        generator_weight_path = ''
-        if resume_training:
-            with open("./saved_models/trpo/model.yml", 'r') as f:
-                data = yaml.safe_load(f)
-                self.starting_episode = data['episode']
-                print('\nRestarting from episode {:d}'.format(self.starting_episode))
-                self.gen_result = data['gen_loss']
-                self.disc_result = data['disc_loss']
-                self.post_result = data['post_loss']
-                self.value_result = data['value_loss']
-            generator_weight_path = './saved_models/trpo/generator.h5'
-            models.discriminator.model.load_weights('./saved_models/trpo/discriminator.h5')
-            models.posterior.model.load_weights('./saved_models/trpo/posterior.h5')
-            models.value_net.model.load_weights('./saved_models/trpo/value_net.h5')
-        else:
-            generator_weight_path = './saved_models/bc/generator.h5'
-        
-        models.generator.model.load_weights(generator_weight_path)
-
-        self.start_pos, self.start_codes = extract_start_pos(self.features['train'], self.feature_size['train'], feat_width)
-        print('\nSetup ready!')
     
     def __saveplot(self, x, y, episode, element='element', mode='plot'):
         plt.figure()
@@ -134,11 +107,66 @@ class InfoGAIL():
         plt.close()
     
     def train(self, agent):
+        features = {}
+        feature_size = {}
+        feat_width = None
+        generator_weight_path = ''
+
+        if resume_training:
+            with open("./saved_models/trpo/model.yml", 'r') as f:
+                data = yaml.safe_load(f)
+                self.starting_episode = data['episode']
+                print('\nRestarting from episode {:d}'.format(self.starting_episode))
+                self.gen_result = data['gen_loss']
+                self.disc_result = data['disc_loss']
+                self.post_result = data['post_loss']
+                self.value_result = data['value_loss']
+            generator_weight_path = './saved_models/trpo/generator.h5'
+            models.discriminator.model.load_weights('./saved_models/trpo/discriminator.h5')
+            models.posterior.model.load_weights('./saved_models/trpo/posterior.h5')
+            models.value_net.model.load_weights('./saved_models/trpo/value_net.h5')
+
+            with open("./saved_models/trpo/dataset.yml", 'r') as f:
+                data = yaml.safe_load(f)
+                features['train'] = {
+                    'states': np.array(data['train_states'], dtype=np.float64),
+                    'actions': np.array(data['train_actions'], dtype=np.float64),
+                    'codes': np.array(data['train_codes'], dtype=np.float64)
+                }
+                feature_size['train'] = np.array(data['train_feat_size'], dtype=int)
+                feat_width = data['feat_width']
+        else:
+            generator_weight_path = './saved_models/bc/generator.h5'
+
+            # load data
+            expert_data = read_expert()
+            expert_data = extract_features(expert_data)
+            features, feature_size, expert_data, feat_width = extract_norm_apertures_wrist_mdp(expert_data)
+
+            yaml_conf = {
+                'train_states': features['train']['states'].tolist(),
+                'train_actions': features['train']['actions'].tolist(),
+                'train_codes': features['train']['codes'].tolist(),
+                'test_states': features['test']['states'].tolist(),
+                'test_actions': features['test']['actions'].tolist(),
+                'test_codes': features['test']['codes'].tolist(),
+                'train_feat_size': feature_size['train'].tolist(),
+                'test_feat_size': feature_size['test'].tolist(),
+                'feat_width': feat_width
+            }
+
+            with open("./saved_models/trpo/dataset.yml", 'w') as f:
+                yaml.dump(yaml_conf, f, sort_keys=False, default_flow_style=False)
+        
+        models.generator.model.load_weights(generator_weight_path)
+        train_start_pos, train_start_codes = extract_start_pos(features['train'], feature_size['train'], feat_width)
+        print('\nTraining setup ready!')
+
         for episode in trange(self.starting_episode, self.episodes, desc="Episode"):
             # Sample a batch of latent codes: ci ∼ p(c)
-            pick = np.random.choice(self.start_codes.shape[0], self.code_batch)
-            sampled_codes = self.start_codes[pick]
-            sampled_pos = self.start_pos[pick]
+            pick = np.random.choice(train_start_codes.shape[0], self.code_batch)
+            sampled_codes = train_start_codes[pick]
+            sampled_pos = train_start_pos[pick]
             starting_pos_code_pairs = list(zip(sampled_codes, sampled_pos))
 
             # Sample trajectories: τi ∼ πθi(ci), with the latent code fixed during each rollout
@@ -161,39 +189,39 @@ class InfoGAIL():
 
             # train discriminator
             # Sample state-action pairs χi ~ τi and χΕ ~ τΕ with the same batch size
-            if self.features['train']['states'].shape[0] < generated_states.shape[0]:
-                expert_idx = np.arange(self.features['train']['states'].shape[0])
+            if features['train']['states'].shape[0] < generated_states.shape[0]:
+                expert_idx = np.arange(features['train']['states'].shape[0])
                 np.random.shuffle(expert_idx)
-                shuffled_expert_states = self.features['train']['states'][expert_idx, :]
-                shuffled_expert_actions = self.features['train']['actions'][expert_idx, :]
+                shuffled_expert_states = features['train']['states'][expert_idx, :]
+                shuffled_expert_actions = features['train']['actions'][expert_idx, :]
 
-                generated_idx = np.random.choice(generated_states.shape[0], self.features['train']['states'].shape[0], replace=False)
+                generated_idx = np.random.choice(generated_states.shape[0], features['train']['states'].shape[0], replace=False)
                 shuffled_generated_states = generated_states[generated_idx, :]
                 shuffled_generated_actions = generated_actions[generated_idx, :]
-            elif self.features['train']['states'].shape[0] > generated_states.shape[0]:
+            elif features['train']['states'].shape[0] > generated_states.shape[0]:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
                 shuffled_generated_states = generated_states[generated_idx, :]
                 shuffled_generated_actions = generated_actions[generated_idx, :]
 
-                expert_idx = np.random.choice(self.features['train']['states'].shape[0], generated_states.shape[0], replace=False)
-                shuffled_expert_states = self.features['train']['states'][expert_idx, :]
-                shuffled_expert_actions = self.features['train']['actions'][expert_idx, :]
+                expert_idx = np.random.choice(features['train']['states'].shape[0], generated_states.shape[0], replace=False)
+                shuffled_expert_states = features['train']['states'][expert_idx, :]
+                shuffled_expert_actions = features['train']['actions'][expert_idx, :]
             else:
-                expert_idx = np.arange(self.features['train']['states'].shape[0])
+                expert_idx = np.arange(features['train']['states'].shape[0])
                 np.random.shuffle(expert_idx)
-                shuffled_expert_states = self.features['train']['states'][expert_idx, :]
-                shuffled_expert_actions = self.features['train']['actions'][expert_idx, :]
+                shuffled_expert_states = features['train']['states'][expert_idx, :]
+                shuffled_expert_actions = features['train']['actions'][expert_idx, :]
 
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
                 shuffled_generated_states = generated_states[generated_idx, :]
                 shuffled_generated_actions = generated_actions[generated_idx, :]
 
-            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float32)
-            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float32)
-            shuffled_expert_states = tf.convert_to_tensor(shuffled_expert_states, dtype=tf.float32)
-            shuffled_expert_actions = tf.convert_to_tensor(shuffled_expert_actions, dtype=tf.float32)
+            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
+            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
+            shuffled_expert_states = tf.convert_to_tensor(shuffled_expert_states, dtype=tf.float64)
+            shuffled_expert_actions = tf.convert_to_tensor(shuffled_expert_actions, dtype=tf.float64)
 
             dataset = tf.data.Dataset.from_tensor_slices((shuffled_generated_states, shuffled_generated_actions, shuffled_expert_states, shuffled_expert_actions))
             dataset = dataset.batch(batch_size=self.batch)
@@ -202,8 +230,8 @@ class InfoGAIL():
             if save_loss: self.disc_result.append(loss)
 
             # train posterior
-            if self.features['train']['states'].shape[0] < generated_states.shape[0]:
-                generated_idx = np.random.choice(generated_states.shape[0], self.features['train']['states'].shape[0], replace=False)
+            if features['train']['states'].shape[0] < generated_states.shape[0]:
+                generated_idx = np.random.choice(generated_states.shape[0], features['train']['states'].shape[0], replace=False)
             else:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
@@ -211,9 +239,9 @@ class InfoGAIL():
             shuffled_generated_states = generated_states[generated_idx, :]
             shuffled_generated_actions = generated_actions[generated_idx, :]
             shuffled_generated_codes = generated_codes[generated_idx, :]
-            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float32)
-            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float32)
-            shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float32)
+            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
+            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
+            shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
             dataset = tf.data.Dataset.from_tensor_slices((shuffled_generated_states, shuffled_generated_actions, shuffled_generated_codes))
             dataset = dataset.batch(batch_size=self.batch)
 
@@ -244,8 +272,8 @@ class InfoGAIL():
             # train value net for next iter
             returns = np.expand_dims(np.concatenate([traj['returns'] for traj in trajectories]), axis=1)
 
-            if self.features['train']['states'].shape[0] < generated_states.shape[0]:
-                generated_idx = np.random.choice(generated_states.shape[0], self.features['train']['states'].shape[0], replace=False)
+            if features['train']['states'].shape[0] < generated_states.shape[0]:
+                generated_idx = np.random.choice(generated_states.shape[0], features['train']['states'].shape[0], replace=False)
             else:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
@@ -253,9 +281,9 @@ class InfoGAIL():
             shuffled_generated_states = generated_states[generated_idx, :]
             shuffled_generated_codes = generated_codes[generated_idx, :]
             shuffled_returns = returns[generated_idx, :]
-            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float32)
-            shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float32)
-            shuffled_returns = tf.convert_to_tensor(shuffled_returns, dtype=tf.float32)
+            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
+            shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
+            shuffled_returns = tf.convert_to_tensor(shuffled_returns, dtype=tf.float64)
             dataset = tf.data.Dataset.from_tensor_slices((shuffled_generated_states, shuffled_generated_codes, shuffled_returns))
             dataset = dataset.batch(batch_size=self.batch)
 
@@ -276,7 +304,7 @@ class InfoGAIL():
 
             if save_loss:
                 # plot rewards and losses
-                episode_reward = np.array(episode_rewards, dtype=np.float32).mean()
+                episode_reward = np.array(episode_rewards, dtype=np.float64).mean()
                 self.total_rewards.append(episode_reward)
                 if episode != 0:
                     self.show_loss()
@@ -295,15 +323,107 @@ class InfoGAIL():
                     'gen_loss': self.gen_result,
                     'disc_loss': self.disc_result,
                     'post_loss': self.post_result,
-                    'value_loss': self.value_result,
-                    'train_features': self.features['train'].tolist(),
-                    'test_features': self.features['test'].tolist(),
-                    'train_feat_size': self.feature_size['train'].tolist(),
-                    'test_feat_size': self.feature_size['test'].tolist()
+                    'value_loss': self.value_result
                 }
                 
                 with open("./saved_models/trpo/model.yml", 'w') as f:
                     yaml.dump(yaml_conf, f, sort_keys=False, default_flow_style=False)
+
+    def test(self, agent):
+        features = {}
+        feature_size = None
+
+        models.generator.model.load_weights('./saved_models/trpo/generator.h5')
+        models.discriminator.model.load_weights('./saved_models/trpo/discriminator.h5')
+        models.posterior.model.load_weights('./saved_models/trpo/posterior.h5')
+        # models.value_net.model.load_weights('./saved_models/trpo/value_net.h5')
+
+        with open("./saved_models/trpo/dataset.yml", 'r') as f:
+            data = yaml.safe_load(f)
+            features = {
+                'states': np.array(data['test_states'], dtype=np.float64),
+                'actions': np.array(data['test_actions'], dtype=np.float64),
+                'codes': np.array(data['test_codes'], dtype=np.float64)
+            }
+            feature_size = np.array(data['test_feat_size'], dtype=int)
+            feat_width = data['feat_width']
+        
+        start_pos, start_codes = extract_start_pos(features, feature_size, feat_width)
+        print('\nTest setup ready!')
+
+        # trajectory generation
+        starting_pos_code_pairs = list(zip(start_codes, start_pos))
+        trajectories = []
+        with mp.Pool(mp.cpu_count()) as pool:
+            trajectories = pool.starmap(agent.run, starting_pos_code_pairs)
+        
+        generated_states = np.concatenate([traj['states'] for traj in trajectories])
+        generated_actions = np.concatenate([traj['actions'] for traj in trajectories])
+        generated_codes = np.concatenate([traj['codes'] for traj in trajectories])
+
+        # discriminate
+        if features['states'].shape[0] < generated_states.shape[0]:
+            expert_idx = np.arange(features['states'].shape[0])
+            np.random.shuffle(expert_idx)
+            shuffled_expert_states = features['states'][expert_idx, :]
+            shuffled_expert_actions = features['actions'][expert_idx, :]
+
+            generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
+            shuffled_generated_states = generated_states[generated_idx, :]
+            shuffled_generated_actions = generated_actions[generated_idx, :]
+        elif features['states'].shape[0] > generated_states.shape[0]:
+            generated_idx = np.arange(generated_states.shape[0])
+            np.random.shuffle(generated_idx)
+            shuffled_generated_states = generated_states[generated_idx, :]
+            shuffled_generated_actions = generated_actions[generated_idx, :]
+
+            expert_idx = np.random.choice(features['states'].shape[0], generated_states.shape[0], replace=False)
+            shuffled_expert_states = features['states'][expert_idx, :]
+            shuffled_expert_actions = features['actions'][expert_idx, :]
+        else:
+            expert_idx = np.arange(features['states'].shape[0])
+            np.random.shuffle(expert_idx)
+            shuffled_expert_states = features['states'][expert_idx, :]
+            shuffled_expert_actions = features['actions'][expert_idx, :]
+
+            generated_idx = np.arange(generated_states.shape[0])
+            np.random.shuffle(generated_idx)
+            shuffled_generated_states = generated_states[generated_idx, :]
+            shuffled_generated_actions = generated_actions[generated_idx, :]
+        
+        shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
+        shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
+        shuffled_expert_states = tf.convert_to_tensor(shuffled_expert_states, dtype=tf.float64)
+        shuffled_expert_actions = tf.convert_to_tensor(shuffled_expert_actions, dtype=tf.float64)
+
+        score1 = models.discriminator.model([shuffled_generated_states, shuffled_generated_actions], training=False)
+        score2 = models.discriminator.model([shuffled_expert_states, shuffled_expert_actions], training=False)
+        cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+        genloss = cross_entropy(tf.ones_like(score1), score1)
+        expertloss = cross_entropy(tf.zeros_like(score2), score2)
+        loss = tf.reduce_mean(genloss) + tf.reduce_mean(expertloss)
+        print('Discriminator loss: {}'.format(loss))
+
+        # posterior
+        if features['states'].shape[0] < generated_states.shape[0]:
+            generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
+        else:
+            generated_idx = np.arange(generated_states.shape[0])
+            np.random.shuffle(generated_idx)
+
+        shuffled_generated_states = generated_states[generated_idx, :]
+        shuffled_generated_actions = generated_actions[generated_idx, :]
+        shuffled_generated_codes = generated_codes[generated_idx, :]
+        shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
+        shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
+        shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
+
+        prob = models.posterior.model([shuffled_generated_states, shuffled_generated_actions], training=False)
+        cross_entropy = tf.keras.losses.CategoricalCrossentropy()
+
+        loss = cross_entropy(shuffled_generated_codes, prob)
+        loss = tf.reduce_mean(loss)
+        print('Posterior loss: {}'.format(loss))
 
 models = Models(state_dims=15, action_dims=3, code_dims=3)
 
@@ -311,7 +431,8 @@ models = Models(state_dims=15, action_dims=3, code_dims=3)
 def main():
     agent = Agent()
     infogail = InfoGAIL()
-    infogail.train(agent)
+    # infogail.train(agent)
+    infogail.test(agent)
 
 if __name__ == '__main__':
     main()
