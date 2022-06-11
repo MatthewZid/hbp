@@ -14,6 +14,7 @@ import utils
 from scipy.ndimage import shift
 import multiprocessing as mp
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from sklearn.metrics import mean_squared_error, classification_report
 from models import *
 from env import Env
 
@@ -396,13 +397,14 @@ class InfoGAIL():
         shuffled_expert_states = tf.convert_to_tensor(shuffled_expert_states, dtype=tf.float64)
         shuffled_expert_actions = tf.convert_to_tensor(shuffled_expert_actions, dtype=tf.float64)
 
-        score1 = models.discriminator.model([shuffled_generated_states, shuffled_generated_actions], training=False)
-        score2 = models.discriminator.model([shuffled_expert_states, shuffled_expert_actions], training=False)
-        cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
-        genloss = cross_entropy(tf.ones_like(score1), score1)
-        expertloss = cross_entropy(tf.zeros_like(score2), score2)
-        loss = tf.reduce_mean(genloss) + tf.reduce_mean(expertloss)
-        print('Discriminator loss: {}'.format(loss))
+        score1 = tf.keras.activations.sigmoid(models.discriminator.model([shuffled_generated_states, shuffled_generated_actions], training=False))
+        score2 = tf.keras.activations.sigmoid(models.discriminator.model([shuffled_expert_states, shuffled_expert_actions], training=False))
+        score1 = tf.squeeze(score1).numpy()
+        score2 = tf.squeeze(score2).numpy()
+        y_ones = np.ones_like(score1)
+        y_zeros = np.zeros_like(score2)
+        print('Disc generated MSE: {}'.format(mean_squared_error(y_ones, score1)))
+        print('Disc expert MSE: {}'.format(mean_squared_error(y_zeros, score2)))
 
         # posterior
         if features['states'].shape[0] < generated_states.shape[0]:
@@ -419,11 +421,12 @@ class InfoGAIL():
         shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
 
         prob = models.posterior.model([shuffled_generated_states, shuffled_generated_actions], training=False)
-        cross_entropy = tf.keras.losses.CategoricalCrossentropy()
-
-        loss = cross_entropy(shuffled_generated_codes, prob)
-        loss = tf.reduce_mean(loss)
-        print('Posterior loss: {}'.format(loss))
+        prob_pred = tf.math.argmax(prob, axis=1).numpy()
+        codes_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()
+        prob = tf.reduce_max(prob, axis=1).numpy()
+        y_ones = np.ones_like(prob)
+        print('Posterior MSE: {}\n'.format(mean_squared_error(y_ones, prob)))
+        print(classification_report(codes_true, prob_pred))
 
 models = Models(state_dims=15, action_dims=3, code_dims=3)
 
