@@ -337,7 +337,6 @@ class InfoGAIL():
         models.generator.model.load_weights('./saved_models/trpo/generator.h5')
         models.discriminator.model.load_weights('./saved_models/trpo/discriminator.h5')
         models.posterior.model.load_weights('./saved_models/trpo/posterior.h5')
-        # models.value_net.model.load_weights('./saved_models/trpo/value_net.h5')
 
         with open("./saved_models/trpo/dataset.yml", 'r') as f:
             data = yaml.safe_load(f)
