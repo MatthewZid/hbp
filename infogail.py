@@ -14,9 +14,10 @@ import utils
 from scipy.ndimage import shift
 import multiprocessing as mp
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
-from sklearn.metrics import mean_squared_error, classification_report
+from sklearn.metrics import mean_squared_error, classification_report, confusion_matrix
 from models import *
 from env import Env
+import seaborn as sn
 
 class Agent():
     def __generate_trajectory(self, code, start):
@@ -357,75 +358,107 @@ class InfoGAIL():
         with mp.Pool(mp.cpu_count()) as pool:
             trajectories = pool.starmap(agent.run, starting_pos_code_pairs)
         
-        generated_states = np.concatenate([traj['states'] for traj in trajectories])
-        generated_actions = np.concatenate([traj['actions'] for traj in trajectories])
-        generated_codes = np.concatenate([traj['codes'] for traj in trajectories])
-
-        # discriminate
-        if features['states'].shape[0] < generated_states.shape[0]:
-            expert_idx = np.arange(features['states'].shape[0])
-            np.random.shuffle(expert_idx)
-            shuffled_expert_states = features['states'][expert_idx, :]
-            shuffled_expert_actions = features['actions'][expert_idx, :]
-
-            generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
-            shuffled_generated_states = generated_states[generated_idx, :]
-            shuffled_generated_actions = generated_actions[generated_idx, :]
-        elif features['states'].shape[0] > generated_states.shape[0]:
-            generated_idx = np.arange(generated_states.shape[0])
-            np.random.shuffle(generated_idx)
-            shuffled_generated_states = generated_states[generated_idx, :]
-            shuffled_generated_actions = generated_actions[generated_idx, :]
-
-            expert_idx = np.random.choice(features['states'].shape[0], generated_states.shape[0], replace=False)
-            shuffled_expert_states = features['states'][expert_idx, :]
-            shuffled_expert_actions = features['actions'][expert_idx, :]
-        else:
-            expert_idx = np.arange(features['states'].shape[0])
-            np.random.shuffle(expert_idx)
-            shuffled_expert_states = features['states'][expert_idx, :]
-            shuffled_expert_actions = features['actions'][expert_idx, :]
-
-            generated_idx = np.arange(generated_states.shape[0])
-            np.random.shuffle(generated_idx)
-            shuffled_generated_states = generated_states[generated_idx, :]
-            shuffled_generated_actions = generated_actions[generated_idx, :]
+        total_disc_expert = []
+        total_disc_gen = []
+        total_eval_post = []
+        total_codes_true = []
+        total_codes_pred = []
         
-        shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
-        shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
-        shuffled_expert_states = tf.convert_to_tensor(shuffled_expert_states, dtype=tf.float64)
-        shuffled_expert_actions = tf.convert_to_tensor(shuffled_expert_actions, dtype=tf.float64)
+        for traj in trajectories:
+            # discriminate
+            if features['states'].shape[0] < traj['states'].shape[0]:
+                expert_idx = np.arange(features['states'].shape[0])
+                np.random.shuffle(expert_idx)
+                shuffled_expert_states = features['states'][expert_idx, :]
+                shuffled_expert_actions = features['actions'][expert_idx, :]
 
-        score1 = tf.keras.activations.sigmoid(models.discriminator.model([shuffled_generated_states, shuffled_generated_actions], training=False))
-        score2 = tf.keras.activations.sigmoid(models.discriminator.model([shuffled_expert_states, shuffled_expert_actions], training=False))
-        score1 = tf.squeeze(score1).numpy()
-        score2 = tf.squeeze(score2).numpy()
-        y_ones = np.ones_like(score1)
-        y_zeros = np.zeros_like(score2)
-        print('Disc generated MSE: {}'.format(mean_squared_error(y_ones, score1)))
-        print('Disc expert MSE: {}'.format(mean_squared_error(y_zeros, score2)))
+                generated_idx = np.random.choice(traj['states'].shape[0], features['states'].shape[0], replace=False)
+                shuffled_generated_states = traj['states'][generated_idx, :]
+                shuffled_generated_actions = traj['actions'][generated_idx, :]
+            elif features['states'].shape[0] > traj['states'].shape[0]:
+                generated_idx = np.arange(traj['states'].shape[0])
+                np.random.shuffle(generated_idx)
+                shuffled_generated_states = traj['states'][generated_idx, :]
+                shuffled_generated_actions = traj['actions'][generated_idx, :]
 
-        # posterior
-        if features['states'].shape[0] < generated_states.shape[0]:
-            generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
-        else:
-            generated_idx = np.arange(generated_states.shape[0])
-            np.random.shuffle(generated_idx)
+                expert_idx = np.random.choice(features['states'].shape[0], traj['states'].shape[0], replace=False)
+                shuffled_expert_states = features['states'][expert_idx, :]
+                shuffled_expert_actions = features['actions'][expert_idx, :]
+            else:
+                expert_idx = np.arange(features['states'].shape[0])
+                np.random.shuffle(expert_idx)
+                shuffled_expert_states = features['states'][expert_idx, :]
+                shuffled_expert_actions = features['actions'][expert_idx, :]
 
-        shuffled_generated_states = generated_states[generated_idx, :]
-        shuffled_generated_actions = generated_actions[generated_idx, :]
-        shuffled_generated_codes = generated_codes[generated_idx, :]
-        shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
-        shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
-        shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
+                generated_idx = np.arange(traj['states'].shape[0])
+                np.random.shuffle(generated_idx)
+                shuffled_generated_states = traj['states'][generated_idx, :]
+                shuffled_generated_actions = traj['actions'][generated_idx, :]
+            
+            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
+            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
+            shuffled_expert_states = tf.convert_to_tensor(shuffled_expert_states, dtype=tf.float64)
+            shuffled_expert_actions = tf.convert_to_tensor(shuffled_expert_actions, dtype=tf.float64)
 
-        prob = models.posterior.model([shuffled_generated_states, shuffled_generated_actions], training=False)
-        prob_pred = tf.math.argmax(prob, axis=1).numpy()
-        codes_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()
-        prob = tf.reduce_max(prob, axis=1).numpy()
-        y_ones = np.ones_like(prob)
-        print('Posterior MSE: {}\n'.format(mean_squared_error(y_ones, prob)))
-        print(classification_report(codes_true, prob_pred))
+            score1 = tf.keras.activations.sigmoid(models.discriminator.model([shuffled_generated_states, shuffled_generated_actions], training=False))
+            score2 = tf.keras.activations.sigmoid(models.discriminator.model([shuffled_expert_states, shuffled_expert_actions], training=False))
+            score1 = tf.squeeze(score1).numpy()
+            score2 = tf.squeeze(score2).numpy()
+            y_ones = np.ones_like(score1)
+            y_zeros = np.zeros_like(score2)
+            total_disc_expert.append(mean_squared_error(y_zeros, score2))
+            total_disc_gen.append(mean_squared_error(y_ones, score1))
+
+            # posterior
+            if features['states'].shape[0] < traj['states'].shape[0]:
+                generated_idx = np.random.choice(traj['states'].shape[0], features['states'].shape[0], replace=False)
+            else:
+                generated_idx = np.arange(traj['states'].shape[0])
+                np.random.shuffle(generated_idx)
+
+            shuffled_generated_states = traj['states'][generated_idx, :]
+            shuffled_generated_actions = traj['actions'][generated_idx, :]
+            shuffled_generated_codes = traj['codes'][generated_idx, :]
+            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
+            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
+            shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
+
+            prob = models.posterior.model([shuffled_generated_states, shuffled_generated_actions], training=False)
+            cross_entropy = tf.keras.losses.CategoricalCrossentropy()
+            loss = cross_entropy(shuffled_generated_codes, prob)
+            loss = tf.reduce_mean(loss).numpy()
+            total_eval_post.append(loss)
+            prob_mean = tf.reduce_mean(prob, axis=0)
+            prob_pred = tf.math.argmax(prob_mean).numpy()
+            code_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()[0]
+            total_codes_true.append(code_true)
+            total_codes_pred.append(prob_pred)
+
+        print(classification_report(total_codes_true, total_codes_pred))
+        cm = confusion_matrix(total_codes_true, total_codes_pred)
+        group_counts = ['{}'.format(v) for v in cm.flatten()]
+        group_perc = ['{:.2%}'.format(v) for v in cm.flatten()/np.sum(cm)]
+        annot_labels = [f'{v1}\n({v2})' for v1,v2 in zip(group_perc, group_counts)]
+        annot_labels = np.asarray(annot_labels).reshape(cm.shape)
+        hm = sn.heatmap(cm, annot=annot_labels, fmt='', cmap='Blues')
+        hm.set_title('Mode confusion matrix')
+        hm.set_xlabel('Predicted modes')
+        hm.set_ylabel('Actual modes')
+        hm.set_xticklabels(['Small', 'Medium', 'Large'])
+        hm.set_yticklabels(['Small', 'Medium', 'Large'])
+        plt.savefig('cf_matrix', dpi=100)
+        plt.close()
+
+        plt.figure()
+        plt.title('Net losses')
+        plt.xlabel('Trajectory No.')
+        plt.ylabel('Loss')
+        plt.plot(np.arange(len(total_disc_expert)), total_disc_expert)
+        plt.plot(np.arange(len(total_disc_expert)), total_disc_gen)
+        plt.plot(np.arange(len(total_disc_expert)), total_eval_post)
+        plt.legend(['disc_expert_mse', 'disc_gen_mse', 'post_cross_ent'], loc='upper left')
+        plt.savefig('./plots/test_net_losses', dpi=100)
+        plt.close()
 
 models = Models(state_dims=15, action_dims=3, code_dims=3)
 
