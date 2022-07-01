@@ -53,6 +53,26 @@ def get_coords(df, keep=2, start=3):
     
     return pd.concat(sk, axis=1)
 
+def confidence_prob_plot(dataset):
+    aggr_set = {}
+    aggr_set['thumb'] = []
+    aggr_set['index'] = []
+    aggr_set['wrist'] = []
+    for key in dataset.keys():
+        aggr_set['thumb'].append(dataset[key]['RThumb4FingerTip.prob'].to_numpy())
+        aggr_set['index'].append(dataset[key]['RIndex4FingerTip.prob'].to_numpy())
+        aggr_set['wrist'].append(dataset[key]['RWrist.prob'].to_numpy())
+    
+    aggr_set['thumb'] = np.concatenate(aggr_set['thumb'], axis=0)
+    aggr_set['index'] = np.concatenate(aggr_set['index'], axis=0)
+    aggr_set['wrist'] = np.concatenate(aggr_set['wrist'], axis=0)
+    
+    plt.figure()
+    plt.boxplot([aggr_set['wrist'], aggr_set['thumb'], aggr_set['index']])
+    plt.xticks([1,2,3],['Wrist','Thumb','Index'])
+    plt.savefig('conf_prob', dpi=100)
+    plt.close()
+
 def neighbour_dist(coords):
     dist = np.abs(coords[1:] - coords[:-1])
     prev_dist = np.r_[dist[0], dist]
