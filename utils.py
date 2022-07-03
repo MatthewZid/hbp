@@ -21,7 +21,7 @@ save_loss = True
 save_models = True
 resume_training = False
 use_ppo = False
-LOGSTD = tf.math.log(0.008)
+LOGSTD = tf.cast(tf.math.log(0.008), tf.float64)
 SPEED = 0.02
 BUFFER_RATIO = 0.67
 
@@ -404,6 +404,8 @@ def extract_norm_apertures_wrist_mdp(dataset):
         features[tp]['states'] = []
         features[tp]['actions'] = []
         features[tp]['codes'] = []
+        features[tp]['time'] = []
+        features[tp]['norm_time'] = []
 
         feature_size[tp] = []
         new_feature_size[tp] = []
@@ -429,6 +431,8 @@ def extract_norm_apertures_wrist_mdp(dataset):
         for key in keys[tp]:
             points = pd.concat([new_dataset[key]['apertures'], new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y']], axis=1).to_numpy()
             features[tp]['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0] - 1)]))
+            features[tp]['time'].append(new_dataset[key]['time'].iloc[:-1].to_numpy())
+            features[tp]['norm_time'].append(new_dataset[key]['norm_time'].iloc[:-1].to_numpy())
             data[tp].append(points)
             feature_size[tp].append(points.shape[0])
     
@@ -460,9 +464,11 @@ def extract_norm_apertures_wrist_mdp(dataset):
             features[tp]['states'].append(states)
             pos += sz
         
-        features[tp]['states'] = np.concatenate(features[tp]['states'], axis=0)
-        features[tp]['actions'] = np.concatenate(features[tp]['actions'], axis=0)
-        features[tp]['codes'] = np.concatenate(features[tp]['codes'], axis=0)
+        features[tp]['states'] = np.concatenate(features[tp]['states'], axis=0, dtype=np.float64)
+        features[tp]['actions'] = np.concatenate(features[tp]['actions'], axis=0, dtype=np.float64)
+        features[tp]['codes'] = np.concatenate(features[tp]['codes'], axis=0, dtype=np.float64)
+        features[tp]['time'] = np.concatenate(features[tp]['time'], axis=0, dtype=np.float64)
+        features[tp]['norm_time'] = np.concatenate(features[tp]['norm_time'], axis=0, dtype=np.float64)
         new_feature_size[tp] = np.array(new_feature_size[tp], dtype=int)
 
     return features, new_feature_size, dataset, 3
@@ -597,12 +603,12 @@ def discount(x, gamma):
     return signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
 
 def gauss_log_prob(mu, logstd, x):
-    var = tf.exp(2*logstd)
-    gp = -tf.square(x - mu)/(2 * var) - .5*tf.math.log(tf.constant(2*np.pi, dtype=tf.float32)) - logstd
-    return tf.reduce_sum(gp, [1])
+    var = tf.math.exp(2*logstd)
+    gp = -tf.math.square(x - mu)/(2 * var) - .5*tf.math.log(tf.constant(2*np.pi, dtype=tf.float64)) - logstd
+    return tf.math.reduce_sum(gp, [1])
 
 def gauss_ent(logstd):
-    h = tf.reduce_sum(logstd + tf.constant(0.5*tf.math.log(2*math.pi*math.e), tf.float32))
+    h = tf.reduce_sum(logstd + tf.constant(0.5*tf.math.log(2*math.pi*math.e), dtype=tf.float32))
     return h
 
 def var_shape(x):
@@ -648,10 +654,10 @@ def gauss_KL(mu1, logstd1, mu2, logstd2):
 def linesearch(f, x, feed, fullstep, expected_improve_rate):
     accept_ratio = .1
     max_backtracks = 10
-    fval = f(x, feed)[0]
+    fval = f(x, feed)
     for (_, stepfrac) in enumerate(.5**np.arange(max_backtracks)):
         xnew = x + stepfrac * fullstep
-        newfval = f(xnew, feed)[0]
+        newfval = f(xnew, feed)
         actual_improve = fval - newfval
         # actual_improve = newfval - fval
         expected_improve = expected_improve_rate * stepfrac
