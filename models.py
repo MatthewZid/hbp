@@ -36,31 +36,33 @@ class Generator():
         model = Model(inputs=[states,codes], outputs=actions)
         return model
 
-    def __generator_loss(self, feed):
+    @tf.function
+    def __generator_loss(self, feed, ret='g'):
         # calculate ratio between old and new policy (surrogate loss)
         with tf.GradientTape() as grad_tape:
-            actions_mu = self.model([feed['states'], feed['codes']], training=True)
-
-            nans = tf.math.is_nan(actions_mu)
-            if(tf.where(nans).numpy().flatten().shape[0] != 0): print('Mus: NAN!!!!!!!!!!!')
+            actions_mu = tf.cast(self.model([feed['states'], feed['codes']], training=True), tf.float64)
 
             log_p_n = gauss_log_prob(actions_mu, LOGSTD, feed['actions'])
             log_oldp_n = gauss_log_prob(feed['old_mus'], LOGSTD, feed['actions'])
             # ...OR...
-            # dist = tfd.MultivariateNormalDiag(loc=actions_mu, scale_diag=[tf.exp(LOGSTD), tf.exp(LOGSTD)])
-            # dist_old = tfd.MultivariateNormalDiag(loc=feed['old_mus'], scale_diag=[tf.exp(LOGSTD), tf.exp(LOGSTD)])
+            # dist = tfd.MultivariateNormalDiag(loc=actions_mu, scale_diag=[tf.exp(LOGSTD) for _ in range(actions_mu.shape[1])])
+            # dist_old = tfd.MultivariateNormalDiag(loc=feed['old_mus'], scale_diag=[tf.exp(LOGSTD) for _ in range(feed['old_mus'].shape[1])])
             # log_p_n = dist.log_prob(feed['actions'])
             # log_oldp_n = dist_old.log_prob(feed['actions'])
 
-            ratio_n = tf.exp(log_p_n - log_oldp_n)
+            ratio_n = tf.math.exp(log_p_n - log_oldp_n)
             surrogate_loss = None
             if use_ppo:
                 surrogate1 = ratio_n * feed['advants']
                 surrogate2 = tf.clip_by_value(ratio_n, 1 - self.epsilon, 1 + self.epsilon) * feed['advants']
-                surrogate_loss = tf.reduce_mean(tf.math.minimum(surrogate1, surrogate2))
-            else: surrogate_loss = tf.reduce_mean(ratio_n * feed['advants'])
+                surrogate_loss = tf.math.reduce_mean(tf.math.minimum(surrogate1, surrogate2))
+            else: surrogate_loss = tf.math.reduce_mean(ratio_n * feed['advants'])
         
-        return ((surrogate_loss, grad_tape))
+        if ret=='g':
+            var_list = self.model.trainable_weights
+            grads = grad_tape.gradient(surrogate_loss, var_list)
+            return tf.concat([tf.reshape(grad, [numel(v)]) for (v, grad) in zip(var_list, grads)], 0)
+        else: return surrogate_loss
     
     def get_loss(self, theta, feed):
         # set_from_flat(self.generator, theta)
@@ -74,7 +76,7 @@ class Generator():
             self.model.trainable_weights[weight_idx].assign(tf.reshape(theta[start:(start + size)], shape))
             weight_idx += 1
             start += size
-        return self.__generator_loss(feed)
+        return self.__generator_loss(feed, 'l')
     
     def plot_gradients(self, g):
         space = np.arange(1, g.numpy().size+1, dtype=int)
@@ -91,7 +93,7 @@ class Generator():
         with tf.GradientTape() as tape_gvp:
             tape_gvp.watch(var_list)
             with tf.GradientTape() as grad_tape:
-                actions_mu = self.model([feed['states'], feed['codes']], training=True)
+                actions_mu = tf.cast(self.model([feed['states'], feed['codes']], training=True), tf.float64)
                 kl_firstfixed = gauss_selfKL_firstfixed(actions_mu, LOGSTD)
 
             grads = flatgrad(self.model, kl_firstfixed, grad_tape)
@@ -117,8 +119,7 @@ class Generator():
             # calculate previous theta (θold)
             thprev = get_flat(self.model)
 
-            (surrogate_loss, grad_tape) = self.__generator_loss(feed)
-            policy_gradient = flatgrad(self.model, surrogate_loss, grad_tape)
+            policy_gradient = self.__generator_loss(feed)
             self.plot_gradients(policy_gradient)
             nans = tf.math.is_nan(policy_gradient)
             if(tf.where(nans).numpy().flatten().shape[0] != 0): print('NAN!!!!!!!!!!!')
@@ -143,7 +144,7 @@ class Generator():
                 weight_idx += 1
                 start += size
         
-        (surrogate_loss, _) = self.__generator_loss(feed)
+        surrogate_loss = self.__generator_loss(feed, 'l')
         episode_loss = tf.get_static_value(surrogate_loss)
         episode_loss = episode_loss.item()
 
