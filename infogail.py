@@ -141,27 +141,22 @@ class InfoGAIL():
             generator_weight_path = './saved_models/bc/generator.h5'
 
             # load data
-            expert_data = read_expert()
-            expert_data = extract_features(expert_data)
-            features, feature_size, expert_data, feat_width = extract_norm_apertures_wrist_mdp(expert_data)
+            # expert_data = read_expert()
+            # expert_data = extract_features(expert_data)
+            # features, feature_size, expert_data, feat_width = extract_norm_apertures_wrist_mdp(expert_data)
 
-            yaml_conf = {
-                'train_states': features['train']['states'].tolist(),
-                'train_actions': features['train']['actions'].tolist(),
-                'train_codes': features['train']['codes'].tolist(),
-                'test_states': features['test']['states'].tolist(),
-                'test_actions': features['test']['actions'].tolist(),
-                'test_codes': features['test']['codes'].tolist(),
-                'train_feat_size': feature_size['train'].tolist(),
-                'test_feat_size': feature_size['test'].tolist(),
-                'feat_width': feat_width
-            }
-
-            with open("./saved_models/trpo/dataset.yml", 'w') as f:
-                yaml.dump(yaml_conf, f, sort_keys=False, default_flow_style=False)
+            with open("./saved_models/trpo/dataset.yml", 'r') as f:
+                data = yaml.safe_load(f)
+                features = {
+                    'states': np.array(data['train_states'], dtype=np.float64),
+                    'actions': np.array(data['train_actions'], dtype=np.float64),
+                    'codes': np.array(data['train_codes'], dtype=np.float64)
+                }
+                feature_size = np.array(data['train_feat_size'], dtype=int)
+                feat_width = data['feat_width']
         
         models.generator.model.load_weights(generator_weight_path)
-        train_start_pos, train_start_codes = extract_start_pos(features['train'], feature_size['train'], feat_width)
+        train_start_pos, train_start_codes = extract_start_pos(features, feature_size, feat_width)
         print('\nTraining setup ready!')
 
         for episode in trange(self.starting_episode, self.episodes, desc="Episode"):
@@ -184,36 +179,36 @@ class InfoGAIL():
             for traj in trajectories:
                 traj['old_action_mus'] = models.generator.model([traj['states'], traj['codes']], training=False)
             
-            generated_states = np.concatenate([traj['states'] for traj in trajectories])
-            generated_actions = np.concatenate([traj['actions'] for traj in trajectories])
-            generated_codes = np.concatenate([traj['codes'] for traj in trajectories])
-            generated_oldactions = np.concatenate([traj['old_action_mus'] for traj in trajectories])
+            generated_states = np.concatenate([traj['states'] for traj in trajectories], dtype=np.float64)
+            generated_actions = np.concatenate([traj['actions'] for traj in trajectories], dtype=np.float64)
+            generated_codes = np.concatenate([traj['codes'] for traj in trajectories], dtype=np.float64)
+            generated_oldactions = np.concatenate([traj['old_action_mus'] for traj in trajectories], dtype=np.float64)
 
             # train discriminator
             # Sample state-action pairs χi ~ τi and χΕ ~ τΕ with the same batch size
-            if features['train']['states'].shape[0] < generated_states.shape[0]:
-                expert_idx = np.arange(features['train']['states'].shape[0])
+            if features['states'].shape[0] < generated_states.shape[0]:
+                expert_idx = np.arange(features['states'].shape[0])
                 np.random.shuffle(expert_idx)
-                shuffled_expert_states = features['train']['states'][expert_idx, :]
-                shuffled_expert_actions = features['train']['actions'][expert_idx, :]
+                shuffled_expert_states = features['states'][expert_idx, :]
+                shuffled_expert_actions = features['actions'][expert_idx, :]
 
-                generated_idx = np.random.choice(generated_states.shape[0], features['train']['states'].shape[0], replace=False)
+                generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
                 shuffled_generated_states = generated_states[generated_idx, :]
                 shuffled_generated_actions = generated_actions[generated_idx, :]
-            elif features['train']['states'].shape[0] > generated_states.shape[0]:
+            elif features['states'].shape[0] > generated_states.shape[0]:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
                 shuffled_generated_states = generated_states[generated_idx, :]
                 shuffled_generated_actions = generated_actions[generated_idx, :]
 
-                expert_idx = np.random.choice(features['train']['states'].shape[0], generated_states.shape[0], replace=False)
-                shuffled_expert_states = features['train']['states'][expert_idx, :]
-                shuffled_expert_actions = features['train']['actions'][expert_idx, :]
+                expert_idx = np.random.choice(features['states'].shape[0], generated_states.shape[0], replace=False)
+                shuffled_expert_states = features['states'][expert_idx, :]
+                shuffled_expert_actions = features['actions'][expert_idx, :]
             else:
-                expert_idx = np.arange(features['train']['states'].shape[0])
+                expert_idx = np.arange(features['states'].shape[0])
                 np.random.shuffle(expert_idx)
-                shuffled_expert_states = features['train']['states'][expert_idx, :]
-                shuffled_expert_actions = features['train']['actions'][expert_idx, :]
+                shuffled_expert_states = features['states'][expert_idx, :]
+                shuffled_expert_actions = features['actions'][expert_idx, :]
 
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
@@ -232,8 +227,8 @@ class InfoGAIL():
             if save_loss: self.disc_result.append(loss)
 
             # train posterior
-            if features['train']['states'].shape[0] < generated_states.shape[0]:
-                generated_idx = np.random.choice(generated_states.shape[0], features['train']['states'].shape[0], replace=False)
+            if features['states'].shape[0] < generated_states.shape[0]:
+                generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
             else:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
@@ -268,14 +263,14 @@ class InfoGAIL():
                 traj['advants'] = discount(deltas, self.gamma * self.lam)
                 traj['returns'] = discount(traj['rewards'], self.gamma)
             
-            advants = np.concatenate([traj['advants'] for traj in trajectories])
+            advants = np.concatenate([traj['advants'] for traj in trajectories], dtype=np.float64)
             # advants /= advants.std()
 
             # train value net for next iter
             returns = np.expand_dims(np.concatenate([traj['returns'] for traj in trajectories]), axis=1)
 
-            if features['train']['states'].shape[0] < generated_states.shape[0]:
-                generated_idx = np.random.choice(generated_states.shape[0], features['train']['states'].shape[0], replace=False)
+            if features['states'].shape[0] < generated_states.shape[0]:
+                generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
             else:
                 generated_idx = np.arange(generated_states.shape[0])
                 np.random.shuffle(generated_idx)
@@ -363,6 +358,8 @@ class InfoGAIL():
         total_eval_post = []
         total_codes_true = []
         total_codes_pred = []
+        prob_percs_per_object = [[], [], []]
+        intervals = [20.0, 40.0, 60.0, 80.0, 100.0]
         
         for traj in trajectories:
             # discriminate
@@ -430,6 +427,7 @@ class InfoGAIL():
             total_eval_post.append(loss)
             prob_mean = tf.reduce_mean(prob, axis=0)
             prob_pred = tf.math.argmax(prob_mean).numpy()
+            prob_percs_per_object[prob_pred].append(prob_mean[prob_pred])
             code_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()[0]
             total_codes_true.append(code_true)
             total_codes_pred.append(prob_pred)
@@ -446,7 +444,7 @@ class InfoGAIL():
         hm.set_ylabel('Actual modes')
         hm.set_xticklabels(['Small', 'Medium', 'Large'])
         hm.set_yticklabels(['Small', 'Medium', 'Large'])
-        plt.savefig('cf_matrix', dpi=100)
+        plt.savefig('./plots/cf_matrix', dpi=100)
         plt.close()
 
         plt.figure()
@@ -460,14 +458,24 @@ class InfoGAIL():
         plt.savefig('./plots/test_net_losses', dpi=100)
         plt.close()
 
+        plt.figure()
+        plt.xlabel('Trajectory No.')
+        plt.ylabel('Confidence (%)')
+        plt.plot(np.arange(len(prob_percs_per_object[0])), prob_percs_per_object[0])
+        plt.plot(np.arange(len(prob_percs_per_object[1])), prob_percs_per_object[1])
+        plt.plot(np.arange(len(prob_percs_per_object[2])), prob_percs_per_object[2])
+        plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
+        plt.savefig('./plots/conf_percs', dpi=100)
+        plt.close()
+
 models = Models(state_dims=15, action_dims=3, code_dims=3)
 
 # main
 def main():
     agent = Agent()
     infogail = InfoGAIL()
-    # infogail.train(agent)
-    infogail.test(agent)
+    infogail.train(agent)
+    # infogail.test(agent)
 
 if __name__ == '__main__':
     main()
