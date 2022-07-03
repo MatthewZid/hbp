@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from tqdm import trange
+import yaml
 
 BATCH_SIZE = 256
 EPOCHS = 100
@@ -35,7 +36,26 @@ def create_generator(state_dims, action_dims, code_dims):
 # load data
 expert_data = read_expert()
 expert_data = extract_features(expert_data)
-features, _, _, _ = extract_norm_apertures_wrist_mdp(expert_data)
+features, feature_size, expert_data, feat_width = extract_norm_apertures_wrist_mdp(expert_data)
+
+yaml_conf = {
+    'train_states': features['train']['states'].tolist(),
+    'train_actions': features['train']['actions'].tolist(),
+    'train_codes': features['train']['codes'].tolist(),
+    'train_time': features['train']['time'].tolist(),
+    'train_norm_time': features['train']['norm_time'].tolist(),
+    'test_states': features['test']['states'].tolist(),
+    'test_actions': features['test']['actions'].tolist(),
+    'test_codes': features['test']['codes'].tolist(),
+    'test_time': features['test']['time'].tolist(),
+    'test_norm_time': features['test']['norm_time'].tolist(),
+    'train_feat_size': feature_size['train'].tolist(),
+    'test_feat_size': feature_size['test'].tolist(),
+    'feat_width': feat_width
+}
+
+with open("./saved_models/trpo/dataset.yml", 'w') as f:
+    yaml.dump(yaml_conf, f, sort_keys=False, default_flow_style=False)
 
 def train(train_states, train_actions, train_codes, val_states, val_actions, val_codes):
     train_states = tf.convert_to_tensor(train_states, dtype=tf.float32)
