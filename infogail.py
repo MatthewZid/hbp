@@ -476,10 +476,6 @@ class InfoGAIL():
             # group trajectories
             obj_trajectories[str(code_true)].append((shuffled_generated_states, shuffled_generated_actions))
 
-            # franken-trajectories
-            random_code_idx = np.random.choice(features['codes'].shape[1], 1)[0]
-            random_upper_half_idx = np.random.choice(len(obj_trajectories[str(random_code_idx)]), 1)[0]
-
             # intervals
             count = 0
             for ci in intervals:
@@ -591,6 +587,65 @@ class InfoGAIL():
                 plt.close()
 
             count += 1
+        
+        # franken-trajectories
+        franken_codes_true = []
+        franken_codes_pred = []
+        franken_prob_perc_per_object = []
+
+        for i in range(features['codes'].shape[1]):
+            franken_prob_perc_per_object.append([])
+            for _ in range(features['codes'].shape[1]): franken_prob_perc_per_object[i].append([])
+
+        for _ in range(30):
+            random_code_idx = np.random.choice(features['codes'].shape[1], 2, replace=False)
+            random_upper_half_idx = np.random.choice(len(obj_trajectories[str(random_code_idx[0])]), 1)[0]
+            random_lower_half_idx = np.random.choice(len(obj_trajectories[str(random_code_idx[1])]), 1)[0]
+            upper_splitter = int((50 * obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][0].shape[0]) / 100.0)
+            lower_splitter = int((50 * obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][0].shape[0]) / 100.0)
+            random_upper_half = (obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][0][:upper_splitter], \
+                                obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][1][:upper_splitter])
+            random_lower_half = (obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][0][lower_splitter:], \
+                                obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][1][lower_splitter:])
+            
+            franken_traj = {}
+            franken_traj['states'] = np.concatenate([random_upper_half[0], random_lower_half[0]], axis=0)
+            franken_traj['actions'] = np.concatenate([random_upper_half[1], random_lower_half[1]], axis=0)
+            franken_true_code = random_code_idx[1]
+            franken_prob = models.posterior.model([franken_traj['states'], franken_traj['actions']], training=False)
+            franken_prob_mean = tf.reduce_mean(franken_prob, axis=0)
+            franken_prob_pred = tf.math.argmax(franken_prob_mean).numpy()
+            franken_prob_perc_per_object[franken_true_code][0].append(franken_prob_mean.numpy()[0])
+            franken_prob_perc_per_object[franken_true_code][1].append(franken_prob_mean.numpy()[1])
+            franken_prob_perc_per_object[franken_true_code][2].append(franken_prob_mean.numpy()[2])
+            franken_codes_true.append(franken_true_code)
+            franken_codes_pred.append(franken_prob_pred)
+        
+        cm = confusion_matrix(franken_codes_true, franken_codes_pred)
+        group_counts = ['{}'.format(v) for v in cm.flatten()]
+        group_perc = ['{:.2%}'.format(v) for v in cm.flatten()/np.sum(cm)]
+        annot_labels = [f'{v1}\n({v2})' for v1,v2 in zip(group_perc, group_counts)]
+        annot_labels = np.asarray(annot_labels).reshape(cm.shape)
+        hm = sn.heatmap(cm, annot=annot_labels, fmt='', cmap='Blues')
+        hm.set_title('Mixed Mode confusion matrix')
+        hm.set_xlabel('Predicted modes')
+        hm.set_ylabel('Actual modes')
+        hm.set_xticklabels(['Small', 'Medium', 'Large'])
+        hm.set_yticklabels(['Small', 'Medium', 'Large'])
+        plt.savefig('./plots/franken_cf_matrix', dpi=100)
+        plt.close()
+
+        for sz in ['Small', 'Medium', 'Large']:
+            plt.figure()
+            plt.title('Mixed probabilities: '+sz)
+            plt.xlabel('Trajectory No.')
+            plt.ylabel('Probability (%)')
+            plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][0])), franken_prob_perc_per_object[obj_size[sz]][0], alpha=0.6)
+            plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][1])), franken_prob_perc_per_object[obj_size[sz]][1], alpha=0.6)
+            plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][2])), franken_prob_perc_per_object[obj_size[sz]][2], alpha=0.6)
+            plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
+            plt.savefig('./plots/franken_conf_percs_'+sz, dpi=100)
+            plt.close()
 
         plt.figure()
         plt.title('Net losses')
