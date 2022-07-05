@@ -18,6 +18,7 @@ from sklearn.metrics import mean_squared_error, classification_report, confusion
 from models import *
 from env import Env
 import seaborn as sn
+from copy import deepcopy
 
 class Agent():
     def __generate_trajectory(self, code, start):
@@ -339,7 +340,8 @@ class InfoGAIL():
             features = {
                 'states': np.array(data['test_states'], dtype=np.float64),
                 'actions': np.array(data['test_actions'], dtype=np.float64),
-                'codes': np.array(data['test_codes'], dtype=np.float64)
+                'codes': np.array(data['test_codes'], dtype=np.float64),
+                'norm_time': np.array(data['test_norm_time'], dtype=np.float64)
             }
             feature_size = np.array(data['test_feat_size'], dtype=int)
             feat_width = data['feat_width']
@@ -358,68 +360,105 @@ class InfoGAIL():
         total_eval_post = []
         total_codes_true = []
         total_codes_pred = []
-        prob_percs_per_object = [[], [], []]
+        prob_percs_per_object = []
         intervals = [20.0, 40.0, 60.0, 80.0, 100.0]
+        inverse_intervals = [20.0, 40.0, 60.0, 80.0]
+        part_prob_percs_per_object = []
+        end_part_prob_percs_per_object = []
+        part_total_codes_true = []
+        part_total_codes_pred = []
+        end_part_total_codes_true = []
+        end_part_total_codes_pred = []
+        pos = 0
+        expert_i = 0
+
+        obj_size = {'Small': 0, 'Medium': 1, 'Large': 2}
+
+        for i in range(features['codes'].shape[1]):
+            prob_percs_per_object.append([])
+            for _ in range(features['codes'].shape[1]): prob_percs_per_object[i].append([])
+        
+        for i in range(len(intervals)):
+            part_prob_percs_per_object.append([])
+            end_part_prob_percs_per_object.append([])
+            part_total_codes_true.append([])
+            part_total_codes_pred.append([])
+            end_part_total_codes_true.append([])
+            end_part_total_codes_pred.append([])
+            for j in range(features['codes'].shape[1]):
+                part_prob_percs_per_object[i].append([])
+                end_part_prob_percs_per_object[i].append([])
+                for _ in range(features['codes'].shape[1]):
+                    part_prob_percs_per_object[i][j].append([])
+                    end_part_prob_percs_per_object[i][j].append([])
+        
+        obj_trajectories = {
+            '0': [],
+            '1': [],
+            '2': []
+        }
         
         for traj in trajectories:
+            expert_states = features['states'][pos:pos+feature_size[expert_i]]
+            expert_actions = features['actions'][pos:pos+feature_size[expert_i]]
+            expert_norm_time = features['norm_time'][pos:pos+feature_size[expert_i]]
+
             # discriminate
-            if features['states'].shape[0] < traj['states'].shape[0]:
-                expert_idx = np.arange(features['states'].shape[0])
+            if expert_states.shape[0] < traj['states'].shape[0]:
+                expert_idx = np.arange(expert_states.shape[0])
                 np.random.shuffle(expert_idx)
-                shuffled_expert_states = features['states'][expert_idx, :]
-                shuffled_expert_actions = features['actions'][expert_idx, :]
+                shuffled_expert_states = expert_states[expert_idx, :]
+                shuffled_expert_actions = expert_actions[expert_idx, :]
 
-                generated_idx = np.random.choice(traj['states'].shape[0], features['states'].shape[0], replace=False)
+                generated_idx = np.random.choice(traj['states'].shape[0], expert_states.shape[0], replace=False)
                 shuffled_generated_states = traj['states'][generated_idx, :]
                 shuffled_generated_actions = traj['actions'][generated_idx, :]
-            elif features['states'].shape[0] > traj['states'].shape[0]:
+            elif expert_states.shape[0] > traj['states'].shape[0]:
                 generated_idx = np.arange(traj['states'].shape[0])
                 np.random.shuffle(generated_idx)
                 shuffled_generated_states = traj['states'][generated_idx, :]
                 shuffled_generated_actions = traj['actions'][generated_idx, :]
 
-                expert_idx = np.random.choice(features['states'].shape[0], traj['states'].shape[0], replace=False)
-                shuffled_expert_states = features['states'][expert_idx, :]
-                shuffled_expert_actions = features['actions'][expert_idx, :]
+                expert_idx = np.random.choice(expert_states.shape[0], traj['states'].shape[0], replace=False)
+                shuffled_expert_states = expert_states[expert_idx, :]
+                shuffled_expert_actions = expert_actions[expert_idx, :]
             else:
-                expert_idx = np.arange(features['states'].shape[0])
+                expert_idx = np.arange(expert_states.shape[0])
                 np.random.shuffle(expert_idx)
-                shuffled_expert_states = features['states'][expert_idx, :]
-                shuffled_expert_actions = features['actions'][expert_idx, :]
+                shuffled_expert_states = expert_states[expert_idx, :]
+                shuffled_expert_actions = expert_actions[expert_idx, :]
 
                 generated_idx = np.arange(traj['states'].shape[0])
                 np.random.shuffle(generated_idx)
                 shuffled_generated_states = traj['states'][generated_idx, :]
                 shuffled_generated_actions = traj['actions'][generated_idx, :]
-            
-            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
-            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
-            shuffled_expert_states = tf.convert_to_tensor(shuffled_expert_states, dtype=tf.float64)
-            shuffled_expert_actions = tf.convert_to_tensor(shuffled_expert_actions, dtype=tf.float64)
 
-            score1 = tf.keras.activations.sigmoid(models.discriminator.model([shuffled_generated_states, shuffled_generated_actions], training=False))
-            score2 = tf.keras.activations.sigmoid(models.discriminator.model([shuffled_expert_states, shuffled_expert_actions], training=False))
+            score1 = models.discriminator.model([shuffled_generated_states, shuffled_generated_actions], training=False)
+            score2 = models.discriminator.model([shuffled_expert_states, shuffled_expert_actions], training=False)
+            binary_cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
             score1 = tf.squeeze(score1).numpy()
             score2 = tf.squeeze(score2).numpy()
             y_ones = np.ones_like(score1)
             y_zeros = np.zeros_like(score2)
-            total_disc_expert.append(mean_squared_error(y_zeros, score2))
-            total_disc_gen.append(mean_squared_error(y_ones, score1))
+            total_disc_expert.append(binary_cross_entropy(y_zeros, score2))
+            total_disc_gen.append(binary_cross_entropy(y_ones, score1))
 
             # posterior
-            if features['states'].shape[0] < traj['states'].shape[0]:
-                generated_idx = np.random.choice(traj['states'].shape[0], features['states'].shape[0], replace=False)
+            if expert_states.shape[0] < traj['states'].shape[0]:
+                shuffled_generated_states = traj['states'][:expert_states.shape[0]]
+                shuffled_generated_actions = traj['actions'][:expert_states.shape[0]]
+                shuffled_generated_codes = traj['codes'][:expert_states.shape[0]]
+            elif expert_states.shape[0] > traj['states'].shape[0]:
+                print('Generated trajectory smaller than expert!')
+                pos += feature_size[expert_i]
+                expert_i += 1
+                continue
             else:
-                generated_idx = np.arange(traj['states'].shape[0])
-                np.random.shuffle(generated_idx)
+                shuffled_generated_states = traj['states']
+                shuffled_generated_actions = traj['actions']
+                shuffled_generated_codes = traj['codes']
 
-            shuffled_generated_states = traj['states'][generated_idx, :]
-            shuffled_generated_actions = traj['actions'][generated_idx, :]
-            shuffled_generated_codes = traj['codes'][generated_idx, :]
-            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
-            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
-            shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
-
+            # percentages for the whole trajectory
             prob = models.posterior.model([shuffled_generated_states, shuffled_generated_actions], training=False)
             cross_entropy = tf.keras.losses.CategoricalCrossentropy()
             loss = cross_entropy(shuffled_generated_codes, prob)
@@ -427,10 +466,56 @@ class InfoGAIL():
             total_eval_post.append(loss)
             prob_mean = tf.reduce_mean(prob, axis=0)
             prob_pred = tf.math.argmax(prob_mean).numpy()
-            prob_percs_per_object[prob_pred].append(prob_mean[prob_pred])
             code_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()[0]
+            prob_percs_per_object[code_true][0].append(prob_mean.numpy()[0])
+            prob_percs_per_object[code_true][1].append(prob_mean.numpy()[1])
+            prob_percs_per_object[code_true][2].append(prob_mean.numpy()[2])
             total_codes_true.append(code_true)
             total_codes_pred.append(prob_pred)
+
+            # group trajectories
+            obj_trajectories[str(code_true)].append((shuffled_generated_states, shuffled_generated_actions))
+
+            # franken-trajectories
+            random_code_idx = np.random.choice(features['codes'].shape[1], 1)[0]
+            random_upper_half_idx = np.random.choice(len(obj_trajectories[str(random_code_idx)]), 1)[0]
+
+            # intervals
+            count = 0
+            for ci in intervals:
+                partial_expert_idx = np.where(expert_norm_time <= ci)[0]
+                partial_gen_states = shuffled_generated_states[partial_expert_idx, :]
+                partial_gen_actions = shuffled_generated_actions[partial_expert_idx, :]
+                part_prob = models.posterior.model([partial_gen_states, partial_gen_actions], training=False)
+                part_prob_mean = tf.reduce_mean(part_prob, axis=0)
+                part_prob_pred = tf.math.argmax(part_prob_mean).numpy()
+                part_code_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()[0]
+                part_prob_percs_per_object[count][part_code_true][0].append(deepcopy(part_prob_mean.numpy()[0]))
+                part_prob_percs_per_object[count][part_code_true][1].append(deepcopy(part_prob_mean.numpy()[1]))
+                part_prob_percs_per_object[count][part_code_true][2].append(deepcopy(part_prob_mean.numpy()[2]))
+                part_total_codes_true[count].append(deepcopy(part_code_true))
+                part_total_codes_pred[count].append(deepcopy(part_prob_pred))
+                count += 1
+            
+            # inverse intervals
+            count = 0
+            for ci in inverse_intervals:
+                partial_expert_idx = np.where(expert_norm_time >= ci)[0]
+                partial_gen_states = shuffled_generated_states[partial_expert_idx, :]
+                partial_gen_actions = shuffled_generated_actions[partial_expert_idx, :]
+                part_prob = models.posterior.model([partial_gen_states, partial_gen_actions], training=False)
+                part_prob_mean = tf.reduce_mean(part_prob, axis=0)
+                part_prob_pred = tf.math.argmax(part_prob_mean).numpy()
+                part_code_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()[0]
+                end_part_prob_percs_per_object[count][part_code_true][0].append(deepcopy(part_prob_mean.numpy()[0]))
+                end_part_prob_percs_per_object[count][part_code_true][1].append(deepcopy(part_prob_mean.numpy()[1]))
+                end_part_prob_percs_per_object[count][part_code_true][2].append(deepcopy(part_prob_mean.numpy()[2]))
+                end_part_total_codes_true[count].append(deepcopy(part_code_true))
+                end_part_total_codes_pred[count].append(deepcopy(part_prob_pred))
+                count += 1
+            
+            pos += feature_size[expert_i]
+            expert_i += 1
 
         print(classification_report(total_codes_true, total_codes_pred))
         cm = confusion_matrix(total_codes_true, total_codes_pred)
@@ -447,6 +532,66 @@ class InfoGAIL():
         plt.savefig('./plots/cf_matrix', dpi=100)
         plt.close()
 
+        count = 0
+        for ci in intervals:
+            cm = confusion_matrix(part_total_codes_true[count], part_total_codes_pred[count])
+            group_counts = ['{}'.format(v) for v in cm.flatten()]
+            group_perc = ['{:.2%}'.format(v) for v in cm.flatten()/np.sum(cm)]
+            annot_labels = [f'{v1}\n({v2})' for v1,v2 in zip(group_perc, group_counts)]
+            annot_labels = np.asarray(annot_labels).reshape(cm.shape)
+            hm = sn.heatmap(cm, annot=annot_labels, fmt='', cmap='Blues')
+            hm.set_title('Mode confusion matrix: '+str(int(ci))+'% completion')
+            hm.set_xlabel('Predicted modes')
+            hm.set_ylabel('Actual modes')
+            hm.set_xticklabels(['Small', 'Medium', 'Large'])
+            hm.set_yticklabels(['Small', 'Medium', 'Large'])
+            plt.savefig('./plots/cf_matrix_'+str(int(ci)), dpi=100)
+            plt.close()
+
+            for sz in ['Small', 'Medium', 'Large']:
+                plt.figure()
+                plt.title(sz+': '+str(int(ci))+'% completion')
+                plt.xlabel('Trajectory No.')
+                plt.ylabel('Probability (%)')
+                plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][0])), part_prob_percs_per_object[count][obj_size[sz]][0], alpha=0.6)
+                plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][1])), part_prob_percs_per_object[count][obj_size[sz]][1], alpha=0.6)
+                plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][2])), part_prob_percs_per_object[count][obj_size[sz]][2], alpha=0.6)
+                plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
+                plt.savefig('./plots/conf_percs_'+sz+'_'+str(int(ci)), dpi=100)
+                plt.close()
+
+            count += 1
+        
+        count = 0
+        for ci in inverse_intervals:
+            cm = confusion_matrix(end_part_total_codes_true[count], end_part_total_codes_pred[count])
+            group_counts = ['{}'.format(v) for v in cm.flatten()]
+            group_perc = ['{:.2%}'.format(v) for v in cm.flatten()/np.sum(cm)]
+            annot_labels = [f'{v1}\n({v2})' for v1,v2 in zip(group_perc, group_counts)]
+            annot_labels = np.asarray(annot_labels).reshape(cm.shape)
+            hm = sn.heatmap(cm, annot=annot_labels, fmt='', cmap='Blues')
+            hm.set_title('Mode confusion matrix: From '+str(int(ci))+'% of movement until end')
+            hm.set_xlabel('Predicted modes')
+            hm.set_ylabel('Actual modes')
+            hm.set_xticklabels(['Small', 'Medium', 'Large'])
+            hm.set_yticklabels(['Small', 'Medium', 'Large'])
+            plt.savefig('./plots/cf_matrix_inverse_'+str(int(ci)), dpi=100)
+            plt.close()
+
+            for sz in ['Small', 'Medium', 'Large']:
+                plt.figure()
+                plt.title(sz+': From '+str(int(ci))+'% completion until end')
+                plt.xlabel('Trajectory No.')
+                plt.ylabel('Probability (%)')
+                plt.scatter(np.arange(len(end_part_prob_percs_per_object[count][obj_size[sz]][0])), end_part_prob_percs_per_object[count][obj_size[sz]][0], alpha=0.6)
+                plt.scatter(np.arange(len(end_part_prob_percs_per_object[count][obj_size[sz]][1])), end_part_prob_percs_per_object[count][obj_size[sz]][1], alpha=0.6)
+                plt.scatter(np.arange(len(end_part_prob_percs_per_object[count][obj_size[sz]][2])), end_part_prob_percs_per_object[count][obj_size[sz]][2], alpha=0.6)
+                plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
+                plt.savefig('./plots/inverse_conf_percs_'+sz+'_'+str(int(ci)), dpi=100)
+                plt.close()
+
+            count += 1
+
         plt.figure()
         plt.title('Net losses')
         plt.xlabel('Trajectory No.')
@@ -454,19 +599,21 @@ class InfoGAIL():
         plt.plot(np.arange(len(total_disc_expert)), total_disc_expert)
         plt.plot(np.arange(len(total_disc_expert)), total_disc_gen)
         plt.plot(np.arange(len(total_disc_expert)), total_eval_post)
-        plt.legend(['disc_expert_mse', 'disc_gen_mse', 'post_cross_ent'], loc='upper left')
+        plt.legend(['disc expert ce', 'disc gen ce', 'post cross ent'], loc='upper left')
         plt.savefig('./plots/test_net_losses', dpi=100)
         plt.close()
 
-        plt.figure()
-        plt.xlabel('Trajectory No.')
-        plt.ylabel('Confidence (%)')
-        plt.plot(np.arange(len(prob_percs_per_object[0])), prob_percs_per_object[0])
-        plt.plot(np.arange(len(prob_percs_per_object[1])), prob_percs_per_object[1])
-        plt.plot(np.arange(len(prob_percs_per_object[2])), prob_percs_per_object[2])
-        plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
-        plt.savefig('./plots/conf_percs', dpi=100)
-        plt.close()
+        for sz in ['Small', 'Medium', 'Large']:
+            plt.figure()
+            plt.title(sz)
+            plt.xlabel('Trajectory No.')
+            plt.ylabel('Probability (%)')
+            plt.scatter(np.arange(len(prob_percs_per_object[obj_size[sz]][0])), prob_percs_per_object[obj_size[sz]][0], alpha=0.6)
+            plt.scatter(np.arange(len(prob_percs_per_object[obj_size[sz]][1])), prob_percs_per_object[obj_size[sz]][1], alpha=0.6)
+            plt.scatter(np.arange(len(prob_percs_per_object[obj_size[sz]][2])), prob_percs_per_object[obj_size[sz]][2], alpha=0.6)
+            plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
+            plt.savefig('./plots/conf_percs_'+sz, dpi=100)
+            plt.close()
 
 models = Models(state_dims=15, action_dims=3, code_dims=3)
 
@@ -474,8 +621,8 @@ models = Models(state_dims=15, action_dims=3, code_dims=3)
 def main():
     agent = Agent()
     infogail = InfoGAIL()
-    infogail.train(agent)
-    # infogail.test(agent)
+    # infogail.train(agent)
+    infogail.test(agent)
 
 if __name__ == '__main__':
     main()
