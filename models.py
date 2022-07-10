@@ -5,7 +5,7 @@ os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 import tensorflow as tf
 import tensorflow_probability as tfp
 from tensorflow.python.keras.layers import Input, Dense, LeakyReLU, Concatenate, ReLU, Add
-from tensorflow.python.keras.models import Model
+from tensorflow.python.keras.models import Model, clone_model
 import numpy as np
 import matplotlib.pyplot as plt
 from utils import *
@@ -20,37 +20,43 @@ class Generator():
         self.epsilon = epsilon
         self.max_kl = max_kl
         self.model = self.create_generator()
+        self.old_model = self.create_generator()
     
     def create_generator(self):
-        initializer = tf.keras.initializers.GlorotNormal()
+        # initializer = tf.keras.initializers.GlorotNormal()
         states = Input(shape=self.state_dims)
         # default: x = Dense(260, kernel_initializer=initializer, activation='tanh')(states)
-        x = Dense(128, kernel_initializer=initializer, activation='tanh')(states)
+        x = Dense(128, activation='tanh')(states)
         # x = LeakyReLU()(x)
         codes = Input(shape=self.code_dims)
-        c = Dense(64, kernel_initializer=initializer, activation='tanh')(codes)
+        c = Dense(32, activation='tanh')(codes)
         # c = LeakyReLU()(c)
         h = Concatenate(axis=1)([x,c])
         actions = Dense(self.action_dims)(h)
 
         model = Model(inputs=[states,codes], outputs=actions)
         return model
-
+    
     @tf.function
-    def __generator_loss(self, feed, ret='g'):
+    def __generator_loss(self, feed, model_type='current', ret='g'):
         # calculate ratio between old and new policy (surrogate loss)
+        model = None
+        if model_type == 'current': model = self.model
+        else: model = self.old_model
+
         with tf.GradientTape() as grad_tape:
-            actions_mu = tf.cast(self.model([feed['states'], feed['codes']], training=True), tf.float64)
+            actions_mu = model([feed['states'], feed['codes']], training=True)
+            old_actions_mu = self.model([feed['states'], feed['codes']], training=True)
 
             log_p_n = gauss_log_prob(actions_mu, LOGSTD, feed['actions'])
-            log_oldp_n = gauss_log_prob(feed['old_mus'], LOGSTD, feed['actions'])
+            log_oldp_n = gauss_log_prob(old_actions_mu, LOGSTD, feed['actions'])
             # ...OR...
             # dist = tfd.MultivariateNormalDiag(loc=actions_mu, scale_diag=[tf.exp(LOGSTD) for _ in range(actions_mu.shape[1])])
-            # dist_old = tfd.MultivariateNormalDiag(loc=feed['old_mus'], scale_diag=[tf.exp(LOGSTD) for _ in range(feed['old_mus'].shape[1])])
+            # dist_old = tfd.MultivariateNormalDiag(loc=old_actions_mu, scale_diag=[tf.exp(LOGSTD) for _ in range(old_actions_mu.shape[1])])
             # log_p_n = dist.log_prob(feed['actions'])
             # log_oldp_n = dist_old.log_prob(feed['actions'])
 
-            ratio_n = tf.math.exp(log_p_n - log_oldp_n)
+            ratio_n = log_p_n / log_oldp_n
             surrogate_loss = None
             if use_ppo:
                 surrogate1 = ratio_n * feed['advants']
@@ -58,25 +64,25 @@ class Generator():
                 surrogate_loss = tf.math.reduce_mean(tf.math.minimum(surrogate1, surrogate2))
             else: surrogate_loss = tf.math.reduce_mean(ratio_n * feed['advants'])
         
-        if ret=='g':
+        if ret == 'g':
             var_list = self.model.trainable_weights
-            grads = grad_tape.gradient(surrogate_loss, var_list)
+            grads = grad_tape.gradient(surrogate_loss, var_list, unconnected_gradients=tf.UnconnectedGradients.ZERO)
             return tf.concat([tf.reshape(grad, [numel(v)]) for (v, grad) in zip(var_list, grads)], 0)
         else: return surrogate_loss
     
     def get_loss(self, theta, feed):
         # set_from_flat(self.generator, theta)
-        var_list = self.model.trainable_weights
+        var_list = self.old_model.trainable_weights
         shapes = [v.shape for v in var_list]
         start = 0
 
         weight_idx = 0
         for shape in shapes:
             size = np.prod(shape)
-            self.model.trainable_weights[weight_idx].assign(tf.reshape(theta[start:(start + size)], shape))
+            self.old_model.trainable_weights[weight_idx].assign(tf.reshape(theta[start:(start + size)], shape))
             weight_idx += 1
             start += size
-        return self.__generator_loss(feed, 'l')
+        return self.__generator_loss(feed, 'update', 'l')
     
     def plot_gradients(self, g):
         space = np.arange(1, g.numpy().size+1, dtype=int)
@@ -93,7 +99,7 @@ class Generator():
         with tf.GradientTape() as tape_gvp:
             tape_gvp.watch(var_list)
             with tf.GradientTape() as grad_tape:
-                actions_mu = tf.cast(self.model([feed['states'], feed['codes']], training=True), tf.float64)
+                actions_mu = self.model([feed['states'], feed['codes']], training=True)
                 kl_firstfixed = gauss_selfKL_firstfixed(actions_mu, LOGSTD)
 
             grads = flatgrad(self.model, kl_firstfixed, grad_tape)
@@ -119,8 +125,9 @@ class Generator():
             # calculate previous theta (θold)
             thprev = get_flat(self.model)
 
+            # policy gradient
             policy_gradient = self.__generator_loss(feed)
-            self.plot_gradients(policy_gradient)
+            # self.plot_gradients(policy_gradient)
             nans = tf.math.is_nan(policy_gradient)
             if(tf.where(nans).numpy().flatten().shape[0] != 0): print('NAN!!!!!!!!!!!')
             stepdir = conjugate_gradient(self.fisher_vector_product, feed, policy_gradient.numpy())
@@ -131,7 +138,9 @@ class Generator():
             fullstep = lm * stepdir
             neggdotstepdir = policy_gradient.numpy().dot(stepdir)
 
+            # find new theta with linesearch and update the model
             theta = linesearch(self.get_loss, thprev, feed, fullstep, neggdotstepdir)
+            surrogate_loss = self.__generator_loss(feed, 'update', 'l')
             # set_from_flat(self.generator, theta)
             var_list = self.model.trainable_weights
             shapes = [v.shape for v in var_list]
@@ -144,7 +153,6 @@ class Generator():
                 weight_idx += 1
                 start += size
         
-        surrogate_loss = self.__generator_loss(feed, 'l')
         episode_loss = tf.get_static_value(surrogate_loss)
         episode_loss = episode_loss.item()
 
@@ -158,14 +166,15 @@ class Discriminator():
         self.disc_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
     
     def create_discriminator(self):
-        initializer = tf.keras.initializers.HeNormal()
+        # initializer = tf.keras.initializers.HeNormal()
         states = Input(shape=self.state_dims)
         actions = Input(shape=self.action_dims)
-        merged = tf.concat([states,actions], 1)
-        x = Dense(128, kernel_initializer=initializer)(merged)
-        x = LeakyReLU()(x)
-        x = Dense(128, kernel_initializer=initializer)(x)
-        x = LeakyReLU()(x)
+        # merged = tf.concat([states,actions], 1)
+        merged = Concatenate(axis=1)([states,actions])
+        x = Dense(128, activation='tanh')(merged)
+        # x = LeakyReLU()(x)
+        x = Dense(128, activation='tanh')(x)
+        # x = LeakyReLU()(x)
         score = Dense(1)(x)
 
         model = Model(inputs=[states, actions], outputs=score)
@@ -220,14 +229,15 @@ class Posterior():
         self.posterior_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
     
     def create_posterior(self):
-        initializer = tf.keras.initializers.HeNormal()
+        # initializer = tf.keras.initializers.HeNormal()
         states = Input(shape=self.state_dims)
         actions = Input(shape=self.action_dims)
-        merged = tf.concat([states,actions], 1)
-        x = Dense(128, kernel_initializer=initializer)(merged)
-        x = LeakyReLU()(x)
-        x = Dense(128, kernel_initializer=initializer)(x)
-        x = LeakyReLU()(x)
+        # merged = tf.concat([states,actions], 1)
+        merged = Concatenate(axis=1)([states,actions])
+        x = Dense(128, activation='tanh')(merged)
+        # x = LeakyReLU()(x)
+        x = Dense(128, activation='tanh')(x)
+        # x = LeakyReLU()(x)
         x = Dense(self.code_dims)(x)
         output = tf.keras.activations.softmax(x)
 
@@ -268,14 +278,15 @@ class ValueNet():
         self.value_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
 
     def create_valuenet(self):
-        initializer = tf.keras.initializers.HeNormal()
+        # initializer = tf.keras.initializers.HeNormal()
         states = Input(shape=self.state_dims)
         codes = Input(shape=self.code_dims)
-        merged = tf.concat([states,codes], 1)
-        x = Dense(128, kernel_initializer=initializer)(merged)
-        x = LeakyReLU()(x)
-        x = Dense(128, kernel_initializer=initializer)(x)
-        x = LeakyReLU()(x)
+        # merged = tf.concat([states,codes], 1)
+        merged = Concatenate(axis=1)([states, codes])
+        x = Dense(128, activation='tanh')(merged)
+        # x = LeakyReLU()(x)
+        x = Dense(128, activation='tanh')(x)
+        # x = LeakyReLU()(x)
         output = Dense(1)(x)
         # output = tf.keras.activations.sigmoid(output)
 

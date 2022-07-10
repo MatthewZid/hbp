@@ -47,9 +47,9 @@ class Agent():
             state_obsrv, done = env.step(action_mu)
 
             if done:
-                s_traj = np.array(s_traj, dtype=np.float64)
-                a_traj = np.array(a_traj, dtype=np.float64)
-                c_traj = np.array(c_traj, dtype=np.float64)
+                s_traj = np.array(s_traj, dtype=np.float32)
+                a_traj = np.array(a_traj, dtype=np.float32)
+                c_traj = np.array(c_traj, dtype=np.float32)
                 break
         
         return (s_traj, a_traj, c_traj)
@@ -64,9 +64,36 @@ class Agent():
             return trajectory_dict
         except KeyboardInterrupt:
             time.sleep(1)
+        
+    def run_test(self, code, start):
+        try:
+            current_code = np.argmax(code)
+            trajectory_total = {
+                'code': current_code,
+                'trajectories': []
+            }
+
+            latent_codes = []
+            for i in range(3):
+                c = np.zeros((3,))
+                c[i] = 1
+                latent_codes.append(np.copy(c))
+            latent_codes = np.array(latent_codes)
+
+            for lc in latent_codes:
+                trajectory_dict = {}
+                trajectory = self.__generate_trajectory(lc, start)
+                trajectory_dict['states'] = np.copy(trajectory[0])
+                trajectory_dict['actions'] = np.copy(trajectory[1])
+                trajectory_dict['codes'] = np.copy(trajectory[2])
+                trajectory_total['trajectories'].append(trajectory_dict)
+
+            return trajectory_total
+        except KeyboardInterrupt:
+            time.sleep(1)
 
 class InfoGAIL():
-    def __init__(self, batch_size=2000, code_batch=500, episodes=10000, gamma=0.997, lam=0.97):
+    def __init__(self, batch_size=256, code_batch=200, episodes=10000, gamma=0.997, lam=0.97):
         self.batch = batch_size
         self.code_batch = code_batch
         self.episodes = episodes
@@ -157,12 +184,13 @@ class InfoGAIL():
                 feat_width = data['feat_width']
         
         models.generator.model.load_weights(generator_weight_path)
+        models.generator.old_model.load_weights(generator_weight_path)
         train_start_pos, train_start_codes = extract_start_pos(features, feature_size, feat_width)
         print('\nTraining setup ready!')
 
         for episode in trange(self.starting_episode, self.episodes, desc="Episode"):
             # Sample a batch of latent codes: ci ∼ p(c)
-            pick = np.random.choice(train_start_codes.shape[0], self.code_batch)
+            pick = np.random.choice(train_start_codes.shape[0], self.code_batch, replace=False)
             sampled_codes = train_start_codes[pick]
             sampled_pos = train_start_pos[pick]
             starting_pos_code_pairs = list(zip(sampled_codes, sampled_pos))
@@ -177,47 +205,56 @@ class InfoGAIL():
             #     self.buffer.add(traj)
             # trajectories = self.buffer.sample()
             
-            for traj in trajectories:
-                traj['old_action_mus'] = models.generator.model([traj['states'], traj['codes']], training=False)
+            # for traj in trajectories:
+            #     traj['old_action_mus'] = models.generator.model([traj['states'], traj['codes']], training=False)
             
-            generated_states = np.concatenate([traj['states'] for traj in trajectories], dtype=np.float64)
-            generated_actions = np.concatenate([traj['actions'] for traj in trajectories], dtype=np.float64)
-            generated_codes = np.concatenate([traj['codes'] for traj in trajectories], dtype=np.float64)
-            generated_oldactions = np.concatenate([traj['old_action_mus'] for traj in trajectories], dtype=np.float64)
+            generated_states = np.concatenate([traj['states'] for traj in trajectories], dtype=np.float32)
+            generated_actions = np.concatenate([traj['actions'] for traj in trajectories], dtype=np.float32)
+            generated_codes = np.concatenate([traj['codes'] for traj in trajectories], dtype=np.float32)
+            # generated_oldactions = np.concatenate([traj['old_action_mus'] for traj in trajectories], dtype=np.float32)
 
             # train discriminator
             # Sample state-action pairs χi ~ τi and χΕ ~ τΕ with the same batch size
-            if features['states'].shape[0] < generated_states.shape[0]:
-                expert_idx = np.arange(features['states'].shape[0])
-                np.random.shuffle(expert_idx)
-                shuffled_expert_states = features['states'][expert_idx, :]
-                shuffled_expert_actions = features['actions'][expert_idx, :]
+            expert_idx = np.random.choice(features['states'].shape[0], TRAIN_BATCH_SIZE, replace=False)
+            generated_idx = np.random.choice(generated_states.shape[0], TRAIN_BATCH_SIZE, replace=False)
+            shuffled_expert_states = features['states'][expert_idx, :]
+            shuffled_expert_actions = features['actions'][expert_idx, :]
+            shuffled_generated_states = generated_states[generated_idx, :]
+            shuffled_generated_actions = generated_actions[generated_idx, :]
+            shuffled_generated_codes = generated_codes[generated_idx, :]
 
-                generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
-                shuffled_generated_states = generated_states[generated_idx, :]
-                shuffled_generated_actions = generated_actions[generated_idx, :]
-            elif features['states'].shape[0] > generated_states.shape[0]:
-                generated_idx = np.arange(generated_states.shape[0])
-                np.random.shuffle(generated_idx)
-                shuffled_generated_states = generated_states[generated_idx, :]
-                shuffled_generated_actions = generated_actions[generated_idx, :]
+            # if features['states'].shape[0] < generated_states.shape[0]:
+            #     expert_idx = np.arange(features['states'].shape[0])
+            #     np.random.shuffle(expert_idx)
+            #     shuffled_expert_states = features['states'][expert_idx, :]
+            #     shuffled_expert_actions = features['actions'][expert_idx, :]
 
-                expert_idx = np.random.choice(features['states'].shape[0], generated_states.shape[0], replace=False)
-                shuffled_expert_states = features['states'][expert_idx, :]
-                shuffled_expert_actions = features['actions'][expert_idx, :]
-            else:
-                expert_idx = np.arange(features['states'].shape[0])
-                np.random.shuffle(expert_idx)
-                shuffled_expert_states = features['states'][expert_idx, :]
-                shuffled_expert_actions = features['actions'][expert_idx, :]
+            #     generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
+            #     shuffled_generated_states = generated_states[generated_idx, :]
+            #     shuffled_generated_actions = generated_actions[generated_idx, :]
+            # elif features['states'].shape[0] > generated_states.shape[0]:
+            #     generated_idx = np.arange(generated_states.shape[0])
+            #     np.random.shuffle(generated_idx)
+            #     shuffled_generated_states = generated_states[generated_idx, :]
+            #     shuffled_generated_actions = generated_actions[generated_idx, :]
 
-                generated_idx = np.arange(generated_states.shape[0])
-                np.random.shuffle(generated_idx)
-                shuffled_generated_states = generated_states[generated_idx, :]
-                shuffled_generated_actions = generated_actions[generated_idx, :]
+            #     expert_idx = np.random.choice(features['states'].shape[0], generated_states.shape[0], replace=False)
+            #     shuffled_expert_states = features['states'][expert_idx, :]
+            #     shuffled_expert_actions = features['actions'][expert_idx, :]
+            # else:
+            #     expert_idx = np.arange(features['states'].shape[0])
+            #     np.random.shuffle(expert_idx)
+            #     shuffled_expert_states = features['states'][expert_idx, :]
+            #     shuffled_expert_actions = features['actions'][expert_idx, :]
+
+            #     generated_idx = np.arange(generated_states.shape[0])
+            #     np.random.shuffle(generated_idx)
+            #     shuffled_generated_states = generated_states[generated_idx, :]
+            #     shuffled_generated_actions = generated_actions[generated_idx, :]
 
             shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
             shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
+            shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
             shuffled_expert_states = tf.convert_to_tensor(shuffled_expert_states, dtype=tf.float64)
             shuffled_expert_actions = tf.convert_to_tensor(shuffled_expert_actions, dtype=tf.float64)
 
@@ -228,18 +265,18 @@ class InfoGAIL():
             if save_loss: self.disc_result.append(loss)
 
             # train posterior
-            if features['states'].shape[0] < generated_states.shape[0]:
-                generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
-            else:
-                generated_idx = np.arange(generated_states.shape[0])
-                np.random.shuffle(generated_idx)
+            # if features['states'].shape[0] < generated_states.shape[0]:
+            #     generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
+            # else:
+            #     generated_idx = np.arange(generated_states.shape[0])
+            #     np.random.shuffle(generated_idx)
 
-            shuffled_generated_states = generated_states[generated_idx, :]
-            shuffled_generated_actions = generated_actions[generated_idx, :]
-            shuffled_generated_codes = generated_codes[generated_idx, :]
-            shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
-            shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
-            shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
+            # shuffled_generated_states = generated_states[generated_idx, :]
+            # shuffled_generated_actions = generated_actions[generated_idx, :]
+            # shuffled_generated_codes = generated_codes[generated_idx, :]
+            # shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
+            # shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
+            # shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
             dataset = tf.data.Dataset.from_tensor_slices((shuffled_generated_states, shuffled_generated_actions, shuffled_generated_codes))
             dataset = dataset.batch(batch_size=self.batch)
 
@@ -254,7 +291,7 @@ class InfoGAIL():
                 reward_p = models.posterior.model([traj['states'], traj['actions']], training=False).numpy()
                 reward_p = np.sum(np.ma.log(reward_p).filled(0) * traj['codes'], axis=1).flatten() # np.ma.log over tf.math.log, fixes log of zero
 
-                traj['rewards'] = 0.6 * reward_d.flatten() + 0.4 * reward_p
+                traj['rewards'] = reward_d.flatten() + reward_p
                 episode_rewards.append(traj['rewards'].sum())
 
                 # calculate values, advants and returns
@@ -264,17 +301,19 @@ class InfoGAIL():
                 traj['advants'] = discount(deltas, self.gamma * self.lam)
                 traj['returns'] = discount(traj['rewards'], self.gamma)
             
-            advants = np.concatenate([traj['advants'] for traj in trajectories], dtype=np.float64)
+            advants = np.concatenate([traj['advants'] for traj in trajectories], dtype=np.float32)
             # advants /= advants.std()
 
             # train value net for next iter
             returns = np.expand_dims(np.concatenate([traj['returns'] for traj in trajectories]), axis=1)
 
-            if features['states'].shape[0] < generated_states.shape[0]:
-                generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
-            else:
-                generated_idx = np.arange(generated_states.shape[0])
-                np.random.shuffle(generated_idx)
+            # if features['states'].shape[0] < generated_states.shape[0]:
+            #     generated_idx = np.random.choice(generated_states.shape[0], features['states'].shape[0], replace=False)
+            # else:
+            #     generated_idx = np.arange(generated_states.shape[0])
+            #     np.random.shuffle(generated_idx)
+
+            generated_idx = np.random.choice(generated_states.shape[0], TRAIN_BATCH_SIZE, replace=False)
                 
             shuffled_generated_states = generated_states[generated_idx, :]
             shuffled_generated_codes = generated_codes[generated_idx, :]
@@ -293,8 +332,8 @@ class InfoGAIL():
                 'states': generated_states,
                 'actions': generated_actions,
                 'codes': generated_codes,
-                'advants': advants,
-                'old_mus': generated_oldactions
+                'advants': advants
+                # 'old_mus': generated_oldactions
             } 
 
             loss = models.generator.train(feed)
@@ -304,12 +343,12 @@ class InfoGAIL():
                 # plot rewards and losses
                 episode_reward = np.array(episode_rewards, dtype=np.float64).mean()
                 self.total_rewards.append(episode_reward)
-                if episode != 0:
+                if ((episode+1) % 100) == 0:
                     self.show_loss()
                     epoch_space = np.arange(1, len(self.total_rewards)+1, dtype=int)
                     self.__saveplot(epoch_space, self.total_rewards, 0, 'rewards')
             
-            if episode != 0 and (episode % 100 == 0): print('Theta updates so far: {:d}'.format(utils.improved))
+            if ((episode+1) % 100 == 0): print('Theta updates so far: {:d}'.format(utils.improved))
 
             if save_models:
                 models.generator.model.save_weights('./saved_models/trpo/generator.h5')
@@ -353,7 +392,7 @@ class InfoGAIL():
         starting_pos_code_pairs = list(zip(start_codes, start_pos))
         trajectories = []
         with mp.Pool(mp.cpu_count()) as pool:
-            trajectories = pool.starmap(agent.run, starting_pos_code_pairs)
+            trajectories = pool.starmap(agent.run_test, starting_pos_code_pairs)
         
         total_disc_expert = []
         total_disc_gen = []
@@ -369,6 +408,9 @@ class InfoGAIL():
         part_total_codes_pred = []
         end_part_total_codes_true = []
         end_part_total_codes_pred = []
+
+        total_rmse_true = []
+        total_rmse_pred = []
         pos = 0
         expert_i = 0
 
@@ -404,22 +446,22 @@ class InfoGAIL():
             expert_norm_time = features['norm_time'][pos:pos+feature_size[expert_i]]
 
             # discriminate
-            if expert_states.shape[0] < traj['states'].shape[0]:
+            if expert_states.shape[0] < traj['trajectories'][traj['code']]['states'].shape[0]:
                 expert_idx = np.arange(expert_states.shape[0])
                 np.random.shuffle(expert_idx)
                 shuffled_expert_states = expert_states[expert_idx, :]
                 shuffled_expert_actions = expert_actions[expert_idx, :]
 
-                generated_idx = np.random.choice(traj['states'].shape[0], expert_states.shape[0], replace=False)
-                shuffled_generated_states = traj['states'][generated_idx, :]
-                shuffled_generated_actions = traj['actions'][generated_idx, :]
-            elif expert_states.shape[0] > traj['states'].shape[0]:
-                generated_idx = np.arange(traj['states'].shape[0])
+                generated_idx = np.random.choice(traj['trajectories'][traj['code']]['states'].shape[0], expert_states.shape[0], replace=False)
+                shuffled_generated_states = traj['trajectories'][traj['code']]['states'][generated_idx, :]
+                shuffled_generated_actions = traj['trajectories'][traj['code']]['actions'][generated_idx, :]
+            elif expert_states.shape[0] > traj['trajectories'][traj['code']]['states'].shape[0]:
+                generated_idx = np.arange(traj['trajectories'][traj['code']]['states'].shape[0])
                 np.random.shuffle(generated_idx)
-                shuffled_generated_states = traj['states'][generated_idx, :]
-                shuffled_generated_actions = traj['actions'][generated_idx, :]
+                shuffled_generated_states = traj['trajectories'][traj['code']]['states'][generated_idx, :]
+                shuffled_generated_actions = traj['trajectories'][traj['code']]['actions'][generated_idx, :]
 
-                expert_idx = np.random.choice(expert_states.shape[0], traj['states'].shape[0], replace=False)
+                expert_idx = np.random.choice(expert_states.shape[0], traj['trajectories'][traj['code']]['states'].shape[0], replace=False)
                 shuffled_expert_states = expert_states[expert_idx, :]
                 shuffled_expert_actions = expert_actions[expert_idx, :]
             else:
@@ -428,10 +470,10 @@ class InfoGAIL():
                 shuffled_expert_states = expert_states[expert_idx, :]
                 shuffled_expert_actions = expert_actions[expert_idx, :]
 
-                generated_idx = np.arange(traj['states'].shape[0])
+                generated_idx = np.arange(traj['trajectories'][traj['code']]['states'].shape[0])
                 np.random.shuffle(generated_idx)
-                shuffled_generated_states = traj['states'][generated_idx, :]
-                shuffled_generated_actions = traj['actions'][generated_idx, :]
+                shuffled_generated_states = traj['trajectories'][traj['code']]['states'][generated_idx, :]
+                shuffled_generated_actions = traj['trajectories'][traj['code']]['actions'][generated_idx, :]
 
             score1 = models.discriminator.model([shuffled_generated_states, shuffled_generated_actions], training=False)
             score2 = models.discriminator.model([shuffled_expert_states, shuffled_expert_actions], training=False)
@@ -444,52 +486,72 @@ class InfoGAIL():
             total_disc_gen.append(binary_cross_entropy(y_ones, score1))
 
             # posterior
-            if expert_states.shape[0] < traj['states'].shape[0]:
-                shuffled_generated_states = traj['states'][:expert_states.shape[0]]
-                shuffled_generated_actions = traj['actions'][:expert_states.shape[0]]
-                shuffled_generated_codes = traj['codes'][:expert_states.shape[0]]
-            elif expert_states.shape[0] > traj['states'].shape[0]:
-                print('Generated trajectory smaller than expert!')
+            few_examples = False
+            code_true = traj['code']
+            best_traj = {}
+            min_rmse = np.inf
+
+            # generated trajectories for every latent code
+            for i in range(features['codes'].shape[1]):
+                if expert_states.shape[0] < traj['trajectories'][i]['states'].shape[0]:
+                    shuffled_generated_states = traj['trajectories'][i]['states'][:expert_states.shape[0]]
+                    shuffled_generated_actions = traj['trajectories'][i]['actions'][:expert_states.shape[0]]
+                    shuffled_generated_codes = traj['trajectories'][i]['codes'][:expert_states.shape[0]]
+                elif expert_states.shape[0] > traj['trajectories'][i]['states'].shape[0]:
+                    print('Generated trajectory smaller than expert!')
+                    few_examples = True
+                    break
+                else:
+                    shuffled_generated_states = traj['trajectories'][i]['states']
+                    shuffled_generated_actions = traj['trajectories'][i]['actions']
+                    shuffled_generated_codes = traj['trajectories'][i]['codes']
+            
+                # rmse to find the closest generated trajectory to expert
+                rmse_traj = np.sqrt(mean_squared_error(expert_states, shuffled_generated_states))
+                if rmse_traj < min_rmse:
+                    min_rmse = rmse_traj
+                    best_traj['states'] = np.copy(shuffled_generated_states)
+                    best_traj['actions'] = np.copy(shuffled_generated_actions)
+                    best_traj['codes'] = np.copy(shuffled_generated_codes)
+                
+            # best_traj['states'] = np.copy(traj['trajectories'][code_true]['states'][:expert_states.shape[0]])
+            # best_traj['actions'] = np.copy(traj['trajectories'][code_true]['actions'][:expert_states.shape[0]])
+            # best_traj['codes'] = np.copy(traj['trajectories'][code_true]['codes'][:expert_states.shape[0]])
+            
+            if few_examples:
                 pos += feature_size[expert_i]
                 expert_i += 1
                 continue
-            else:
-                shuffled_generated_states = traj['states']
-                shuffled_generated_actions = traj['actions']
-                shuffled_generated_codes = traj['codes']
 
             # percentages for the whole trajectory
-            prob = models.posterior.model([shuffled_generated_states, shuffled_generated_actions], training=False)
+            prob = models.posterior.model([best_traj['states'], best_traj['actions']], training=False)
             cross_entropy = tf.keras.losses.CategoricalCrossentropy()
-            loss = cross_entropy(shuffled_generated_codes, prob)
+            loss = cross_entropy(best_traj['codes'], prob)
             loss = tf.reduce_mean(loss).numpy()
             total_eval_post.append(loss)
-            prob_mean = tf.reduce_mean(prob, axis=0)
-            prob_pred = tf.math.argmax(prob_mean).numpy()
-            code_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()[0]
-            prob_percs_per_object[code_true][0].append(prob_mean.numpy()[0])
-            prob_percs_per_object[code_true][1].append(prob_mean.numpy()[1])
-            prob_percs_per_object[code_true][2].append(prob_mean.numpy()[2])
-            total_codes_true.append(code_true)
+            prob_mean = tf.reduce_mean(prob, axis=0).numpy()
+            prob_pred = np.argmax(prob_mean)
+            prob_percs_per_object[code_true][0].append(prob_mean[0])
+            prob_percs_per_object[code_true][1].append(prob_mean[1])
+            prob_percs_per_object[code_true][2].append(prob_mean[2])
+            total_codes_true.append(np.argmax(best_traj['codes'][0]))
             total_codes_pred.append(prob_pred)
-
-            # group trajectories
-            obj_trajectories[str(code_true)].append((shuffled_generated_states, shuffled_generated_actions))
+            total_rmse_true.append(code_true)
+            total_rmse_pred.append(np.argmax(best_traj['codes'][0]))
 
             # intervals
             count = 0
             for ci in intervals:
                 partial_expert_idx = np.where(expert_norm_time <= ci)[0]
-                partial_gen_states = shuffled_generated_states[partial_expert_idx, :]
-                partial_gen_actions = shuffled_generated_actions[partial_expert_idx, :]
+                partial_gen_states = best_traj['states'][partial_expert_idx, :]
+                partial_gen_actions = best_traj['actions'][partial_expert_idx, :]
                 part_prob = models.posterior.model([partial_gen_states, partial_gen_actions], training=False)
                 part_prob_mean = tf.reduce_mean(part_prob, axis=0)
-                part_prob_pred = tf.math.argmax(part_prob_mean).numpy()
-                part_code_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()[0]
-                part_prob_percs_per_object[count][part_code_true][0].append(deepcopy(part_prob_mean.numpy()[0]))
-                part_prob_percs_per_object[count][part_code_true][1].append(deepcopy(part_prob_mean.numpy()[1]))
-                part_prob_percs_per_object[count][part_code_true][2].append(deepcopy(part_prob_mean.numpy()[2]))
-                part_total_codes_true[count].append(deepcopy(part_code_true))
+                part_prob_pred = np.argmax(part_prob_mean)
+                part_prob_percs_per_object[count][code_true][0].append(part_prob_mean[0])
+                part_prob_percs_per_object[count][code_true][1].append(part_prob_mean[1])
+                part_prob_percs_per_object[count][code_true][2].append(part_prob_mean[2])
+                part_total_codes_true[count].append(deepcopy(np.argmax(best_traj['codes'][0])))
                 part_total_codes_pred[count].append(deepcopy(part_prob_pred))
                 count += 1
             
@@ -497,23 +559,29 @@ class InfoGAIL():
             count = 0
             for ci in inverse_intervals:
                 partial_expert_idx = np.where(expert_norm_time >= ci)[0]
-                partial_gen_states = shuffled_generated_states[partial_expert_idx, :]
-                partial_gen_actions = shuffled_generated_actions[partial_expert_idx, :]
+                partial_gen_states = best_traj['states'][partial_expert_idx, :]
+                partial_gen_actions = best_traj['actions'][partial_expert_idx, :]
                 part_prob = models.posterior.model([partial_gen_states, partial_gen_actions], training=False)
-                part_prob_mean = tf.reduce_mean(part_prob, axis=0)
-                part_prob_pred = tf.math.argmax(part_prob_mean).numpy()
-                part_code_true = tf.math.argmax(shuffled_generated_codes, axis=1).numpy()[0]
-                end_part_prob_percs_per_object[count][part_code_true][0].append(deepcopy(part_prob_mean.numpy()[0]))
-                end_part_prob_percs_per_object[count][part_code_true][1].append(deepcopy(part_prob_mean.numpy()[1]))
-                end_part_prob_percs_per_object[count][part_code_true][2].append(deepcopy(part_prob_mean.numpy()[2]))
-                end_part_total_codes_true[count].append(deepcopy(part_code_true))
+                part_prob_mean = tf.reduce_mean(part_prob, axis=0).numpy()
+                part_prob_pred = np.argmax(part_prob_mean)
+                end_part_prob_percs_per_object[count][code_true][0].append(part_prob_mean[0])
+                end_part_prob_percs_per_object[count][code_true][1].append(part_prob_mean[1])
+                end_part_prob_percs_per_object[count][code_true][2].append(part_prob_mean[2])
+                end_part_total_codes_true[count].append(deepcopy(np.argmax(best_traj['codes'][0])))
                 end_part_total_codes_pred[count].append(deepcopy(part_prob_pred))
                 count += 1
+
+            # group trajectories
+            # obj_trajectories[str(code_true)].append((shuffled_generated_states, shuffled_generated_actions))
+            obj_trajectories[str(code_true)].append((best_traj['states'], best_traj['actions']))
             
             pos += feature_size[expert_i]
             expert_i += 1
 
-        print(classification_report(total_codes_true, total_codes_pred))
+        print('RMSE expert-generated trajectory matching')
+        print(classification_report(total_rmse_true, total_rmse_pred, zero_division=1))
+        print('Max probability classification')
+        print(classification_report(total_codes_true, total_codes_pred, zero_division=1))
         cm = confusion_matrix(total_codes_true, total_codes_pred)
         group_counts = ['{}'.format(v) for v in cm.flatten()]
         group_perc = ['{:.2%}'.format(v) for v in cm.flatten()/np.sum(cm)]
@@ -612,12 +680,13 @@ class InfoGAIL():
             franken_traj['states'] = np.concatenate([random_upper_half[0], random_lower_half[0]], axis=0)
             franken_traj['actions'] = np.concatenate([random_upper_half[1], random_lower_half[1]], axis=0)
             franken_true_code = random_code_idx[1]
+
             franken_prob = models.posterior.model([franken_traj['states'], franken_traj['actions']], training=False)
-            franken_prob_mean = tf.reduce_mean(franken_prob, axis=0)
-            franken_prob_pred = tf.math.argmax(franken_prob_mean).numpy()
-            franken_prob_perc_per_object[franken_true_code][0].append(franken_prob_mean.numpy()[0])
-            franken_prob_perc_per_object[franken_true_code][1].append(franken_prob_mean.numpy()[1])
-            franken_prob_perc_per_object[franken_true_code][2].append(franken_prob_mean.numpy()[2])
+            franken_prob_mean = tf.reduce_mean(franken_prob, axis=0).numpy()
+            franken_prob_pred = np.argmax(franken_prob_mean)
+            franken_prob_perc_per_object[franken_true_code][0].append(franken_prob_mean[0])
+            franken_prob_perc_per_object[franken_true_code][1].append(franken_prob_mean[1])
+            franken_prob_perc_per_object[franken_true_code][2].append(franken_prob_mean[2])
             franken_codes_true.append(franken_true_code)
             franken_codes_pred.append(franken_prob_pred)
         
