@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import math
 from scipy import signal
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 OBJ_SIZE_POS = 4
 PROB_THRESHOLD = 0.6
@@ -21,9 +21,10 @@ save_loss = True
 save_models = True
 resume_training = False
 use_ppo = False
-LOGSTD = tf.cast(tf.math.log(0.008), tf.float64)
+LOGSTD = tf.math.log(0.008)
 SPEED = 0.02
 BUFFER_RATIO = 0.67
+TRAIN_BATCH_SIZE = 2000
 
 def read_expert(dataset_name='preprocessed_2D'):
     # data path
@@ -439,9 +440,18 @@ def extract_norm_apertures_wrist_mdp(dataset):
         data[tp] = np.concatenate(data[tp], axis=0)
         feature_size[tp] = np.array(feature_size[tp], dtype=int)
 
-    state_scaler = MinMaxScaler(feature_range=(-1,1))
-    data['train'] = state_scaler.fit_transform(data['train'])
-    data['test'] = state_scaler.transform(data['test'])
+    # state_scaler = MinMaxScaler(feature_range=(-1,1))
+    # data['train'] = state_scaler.fit_transform(data['train'])
+    # data['test'] = state_scaler.transform(data['test'])
+    # ...OR...
+    wrist_scaler = MinMaxScaler(feature_range=(-1,1))
+    aperture_scaler = StandardScaler()
+    train_apertures = aperture_scaler.fit_transform(data['train'][:, 0].reshape((-1, 1)))
+    test_apertures = aperture_scaler.transform(data['test'][:, 0].reshape((-1, 1)))
+    train_wrist = wrist_scaler.fit_transform(data['train'][:, 1:])
+    test_wrist = wrist_scaler.transform(data['test'][:, 1:])
+    data['train'] = np.concatenate([train_apertures, train_wrist], axis=1)
+    data['test'] = np.concatenate([test_apertures, test_wrist], axis=1)
 
     for tp in ['train', 'test']:
         pos = 0
@@ -522,7 +532,7 @@ def movement_end(dataset):
     plt.savefig('ywrist_movement_ends', dpi=100)
     plt.close()
 
-def norm_movement_ends(features, feat_size, feat_col_len):
+def norm_movement_ends(features, feat_size):
     size_map = {'0': 'S', '1': 'M', '2': 'L'}
     final_pos = {}
     final_pos['S'] = [[], []]
@@ -532,7 +542,7 @@ def norm_movement_ends(features, feat_size, feat_col_len):
 
     for sz in feat_size:
         key = str(np.where(features['codes'][pos] == 1)[0][0])
-        final_pos[size_map[key]][0].append(features['states'][pos+sz-1, -feat_col_len] + features['actions'][pos+sz-1, 0]) # aperture
+        final_pos[size_map[key]][0].append(features['states'][pos+sz-1, 0] + features['actions'][pos+sz-1, 0]) # aperture
         final_pos[size_map[key]][1].append(features['states'][pos+sz-1, -1] + features['actions'][pos+sz-1, -1]) # y-wrist
         pos += sz
     
@@ -604,7 +614,7 @@ def discount(x, gamma):
 
 def gauss_log_prob(mu, logstd, x):
     var = tf.math.exp(2*logstd)
-    gp = -tf.math.square(x - mu)/(2 * var) - .5*tf.math.log(tf.constant(2*np.pi, dtype=tf.float64)) - logstd
+    gp = -tf.math.square(x - mu)/(2 * var) - .5*tf.math.log(tf.constant(2*np.pi, dtype=tf.float32)) - logstd
     return tf.math.reduce_sum(gp, [1])
 
 def gauss_ent(logstd):
@@ -634,10 +644,9 @@ def set_from_flat(model, theta):
         v.assign(tf.reshape(theta[start:start + size], shape))
         start += size
 
-def flatgrad(model, loss, tape, type='n'):
+def flatgrad(model, loss, tape):
     var_list = model.trainable_weights
-    if type == 'n': grads = tape.gradient(loss, var_list)
-    else: grads = tape.jacobian(loss, var_list, unconnected_gradients=tf.UnconnectedGradients.ZERO)
+    grads = tape.gradient(loss, var_list)
     return tf.concat([tf.reshape(grad, [numel(v)]) for (v, grad) in zip(var_list, grads)], 0)
 
 def gauss_selfKL_firstfixed(mu, logstd):
