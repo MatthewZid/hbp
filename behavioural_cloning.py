@@ -19,13 +19,13 @@ K = 10
 show_fig = True
 
 def create_generator(state_dims, action_dims, code_dims):
-    initializer = tf.keras.initializers.GlorotNormal()
+    # initializer = tf.keras.initializers.GlorotNormal()
     states = Input(shape=state_dims)
     # default: x = Dense(260, kernel_initializer=initializer, activation='tanh')(states)
-    x = Dense(128, kernel_initializer=initializer, activation='tanh')(states)
+    x = Dense(128, activation='tanh')(states)
     # x = LeakyReLU()(x)
     codes = Input(shape=code_dims)
-    c = Dense(64, kernel_initializer=initializer, activation='tanh')(codes)
+    c = Dense(32, activation='tanh')(codes)
     # c = LeakyReLU()(c)
     h = Concatenate(axis=1)([x,c])
     actions = Dense(action_dims)(h)
