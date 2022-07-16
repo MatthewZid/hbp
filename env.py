@@ -14,6 +14,7 @@ class Env():
 		self.max_step = max_step
 		self.n_step   = 1
 		self.stop_crit = None
+		self.stop_frame = None
 		self.sigma1   = sigma1
 		self.sigma2   = sigma2
 		self.speed    = speed
@@ -34,7 +35,7 @@ class Env():
 		reward = 0.0
 
 		# if self.n_step >= 129 or abs(self.p[0]) >= 1 or abs(self.p[1]) >= 1:
-		if abs(self.p[-1]) >= self.stop_crit or self.n_step >= MAX_FRAMES:	# must determine stop criteria with object distance (here: if y-wrist coord >= stop_crit, stop)
+		if self.n_step > self.stop_frame:	# must determine stop criteria with object distance (here: if y-wrist coord >= stop_crit, stop)
 			done = True
 		else:
 			done = False
@@ -45,7 +46,7 @@ class Env():
 	#-------------------------
 	# Reset
 	#-------------------------
-	def reset(self, code, start=(0.0,0.0,0.0)):
+	def reset(self, start=(0.0,0.0,0.0), feat_size=MAX_FRAMES):
 		self.state = np.zeros((5, len(start)), dtype=np.float64)
 		self.p = np.zeros((len(start),), dtype=np.float64)
 		for i in range(len(start)): self.p[i] = start[i]
@@ -56,8 +57,9 @@ class Env():
 				self.state[i,j] = self.p[j]
 		
 		# set trajectory stop criteria (y-wrist)
-		if code[0] == 1: self.stop_crit = 0.982 # small
-		elif code[1] == 1: self.stop_crit = 0.963 # medium
-		elif code[2] == 1: self.stop_crit = 0.9815 # large
+		# if code[0] == 1: self.stop_crit = 0.982 # small
+		# elif code[1] == 1: self.stop_crit = 0.963 # medium
+		# elif code[2] == 1: self.stop_crit = 0.9815 # large
+		self.stop_frame = feat_size
 
 		return np.copy(self.state.flatten())

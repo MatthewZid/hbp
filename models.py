@@ -20,7 +20,8 @@ class Generator():
         self.epsilon = epsilon
         self.max_kl = max_kl
         self.model = self.create_generator()
-        self.old_model = self.create_generator()
+        # self.old_model = self.create_generator()
+        self.old_model = clone_model(self.model)
     
     def create_generator(self):
         # initializer = tf.keras.initializers.GlorotNormal()
@@ -181,10 +182,12 @@ class Discriminator():
         return model
     
     def __disc_loss(self, score1, score2):
-        cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
+        # cross_entropy = tf.keras.losses.BinaryCrossentropy(from_logits=True)
 
-        genloss = cross_entropy(tf.ones_like(score1), score1)
-        expertloss = cross_entropy(tf.zeros_like(score2), score2)
+        # genloss = cross_entropy(tf.ones_like(score1), score1)
+        # expertloss = cross_entropy(tf.zeros_like(score2), score2)
+        genloss = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(score1), logits=score1)
+        expertloss = tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(score2), logits=score2)
         loss = tf.reduce_mean(genloss) + tf.reduce_mean(expertloss)
 
         return loss

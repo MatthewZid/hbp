@@ -421,16 +421,33 @@ def extract_norm_apertures_wrist_mdp(dataset):
             dataset[key] = dataset[key].interpolate(method='linear')
         new_dataset[key] = dataset[key].copy()
     
-    train_ratio = int((80 * len(new_dataset.keys())) / 100.0)
-    np_keys = np.array(list(new_dataset.keys()))
-    np.random.shuffle(np_keys)
-    keys = {}
-    keys['train'] = np_keys[:train_ratio]
-    keys['test'] = np_keys[train_ratio:]
+    obj_size = {'S': [], 'M': [], 'L': []}
+
+    for key in new_dataset.keys():
+        obj_size[key[OBJ_SIZE_POS]].append(key)
+    
+    # train_ratio = int((80 * len(new_dataset.keys())) / 100.0)
+    # np_keys = np.array(list(new_dataset.keys()))
+    # np.random.shuffle(np_keys)
+    # keys = {}
+    # keys['train'] = np_keys[:train_ratio]
+    # keys['test'] = np_keys[train_ratio:]
+    # ---------------------------------------------
+    keys = {'train': [], 'test': []}
+    for key in obj_size.keys():
+        train_ratio = int((80 * len(obj_size[key])) / 100.0)
+        np_keys = np.array(obj_size[key])
+        np.random.shuffle(np_keys)
+        keys['train'].append(np_keys[:train_ratio])
+        keys['test'].append(np_keys[train_ratio:])
+    
+    keys['train'] = np.concatenate(keys['train'], axis=0)
+    keys['test'] = np.concatenate(keys['test'], axis=0)
     
     for tp in ['train', 'test']:
         for key in keys[tp]:
             points = pd.concat([new_dataset[key]['apertures'], new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y']], axis=1).to_numpy()
+            # points = new_dataset[key]['apertures'].to_numpy()
             features[tp]['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0] - 1)]))
             features[tp]['time'].append(new_dataset[key]['time'].iloc[:-1].to_numpy())
             features[tp]['norm_time'].append(new_dataset[key]['norm_time'].iloc[:-1].to_numpy())
@@ -438,6 +455,7 @@ def extract_norm_apertures_wrist_mdp(dataset):
             feature_size[tp].append(points.shape[0])
     
         data[tp] = np.concatenate(data[tp], axis=0)
+        # data[tp] = np.expand_dims(np.concatenate(data[tp], axis=0), axis=1)
         feature_size[tp] = np.array(feature_size[tp], dtype=int)
 
     # state_scaler = MinMaxScaler(feature_range=(-1,1))
@@ -445,13 +463,17 @@ def extract_norm_apertures_wrist_mdp(dataset):
     # data['test'] = state_scaler.transform(data['test'])
     # ...OR...
     wrist_scaler = MinMaxScaler(feature_range=(-1,1))
-    aperture_scaler = StandardScaler()
-    train_apertures = aperture_scaler.fit_transform(data['train'][:, 0].reshape((-1, 1)))
-    test_apertures = aperture_scaler.transform(data['test'][:, 0].reshape((-1, 1)))
+    # aperture_scaler = StandardScaler()
+    train_apertures = data['train'][:, 0].reshape((-1, 1)) - data['train'][:, 0].reshape((-1, 1)).min()
+    test_apertures = data['test'][:, 0].reshape((-1, 1)) - data['test'][:, 0].reshape((-1, 1)).min()
+    # train_apertures = aperture_scaler.fit_transform(data['train'][:, 0].reshape((-1, 1)))
+    # test_apertures = aperture_scaler.transform(data['test'][:, 0].reshape((-1, 1)))
     train_wrist = wrist_scaler.fit_transform(data['train'][:, 1:])
     test_wrist = wrist_scaler.transform(data['test'][:, 1:])
     data['train'] = np.concatenate([train_apertures, train_wrist], axis=1)
     data['test'] = np.concatenate([test_apertures, test_wrist], axis=1)
+    # data['train'] = np.expand_dims(train_apertures, axis=1)
+    # data['test'] = np.expand_dims(test_apertures, axis=1)
 
     for tp in ['train', 'test']:
         pos = 0
@@ -482,6 +504,7 @@ def extract_norm_apertures_wrist_mdp(dataset):
         new_feature_size[tp] = np.array(new_feature_size[tp], dtype=int)
 
     return features, new_feature_size, dataset, 3
+    # return features, new_feature_size, dataset, 1
 
 def extract_start_pos(features, feat_size, feat_col_len):
     start_pos = []
