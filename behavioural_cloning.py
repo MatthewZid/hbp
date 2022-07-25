@@ -36,7 +36,7 @@ def create_generator(state_dims, action_dims, code_dims):
 # load data
 expert_data = read_expert()
 expert_data = extract_features(expert_data)
-features, feature_size, expert_data, feat_width = extract_norm_apertures_wrist_mdp(expert_data)
+features, feature_size, expert_data = extract_norm_apertures_wrist_mdp(expert_data)
 
 yaml_conf = {
     'train_states': features['train']['states'].tolist(),
@@ -50,8 +50,7 @@ yaml_conf = {
     'test_time': features['test']['time'].tolist(),
     'test_norm_time': features['test']['norm_time'].tolist(),
     'train_feat_size': feature_size['train'].tolist(),
-    'test_feat_size': feature_size['test'].tolist(),
-    'feat_width': feat_width
+    'test_feat_size': feature_size['test'].tolist()
 }
 
 with open("./saved_models/trpo/dataset.yml", 'w') as f:

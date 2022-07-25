@@ -36,7 +36,7 @@ class Agent():
             # 1. generate actions with generator
             state_tf = tf.constant(state_obsrv)
             state_tf = tf.expand_dims(state_tf, axis=0)
-            action_mu = models.generator.model([state_tf, code_tf], training=False).numpy()#[0] # when action_dims > 1, don't use [0]
+            action_mu = models.generator.model([state_tf, code_tf], training=False)#.numpy()[0] # when action_dims > 1, don't use .numpy()[0]
             action_mu = tf.squeeze(action_mu).numpy()
 
             s_traj.append(state_obsrv)
@@ -103,6 +103,7 @@ class InfoGAIL():
         self.gen_result = []
         self.disc_result = []
         self.post_result = []
+        self.post_result_val = []
         self.value_result = []
         self.total_rewards = []
     
@@ -126,7 +127,8 @@ class InfoGAIL():
         plt.title('Disc/Post losses')
         plt.plot(epoch_space, self.disc_result)
         plt.plot(epoch_space, self.post_result)
-        plt.legend(['disc', 'post'], loc="lower left")
+        plt.plot(epoch_space, self.post_result_val)
+        plt.legend(['disc', 'post train', 'post val'], loc="upper right")
         plt.savefig('./plots/disc_post', dpi=100)
         plt.close()
 
@@ -139,7 +141,6 @@ class InfoGAIL():
     def train(self, agent):
         features = {}
         feature_size = {}
-        feat_width = None
         generator_weight_path = ''
 
         if resume_training:
@@ -150,6 +151,7 @@ class InfoGAIL():
                 self.gen_result = data['gen_loss']
                 self.disc_result = data['disc_loss']
                 self.post_result = data['post_loss']
+                self.post_result_val = data['post_loss_val']
                 self.value_result = data['value_loss']
             generator_weight_path = './saved_models/trpo/generator.h5'
             models.discriminator.model.load_weights('./saved_models/trpo/discriminator.h5')
@@ -165,7 +167,6 @@ class InfoGAIL():
                     'norm_time': np.array(data['train_norm_time'], dtype=np.float64)
                 }
                 feature_size['train'] = np.array(data['train_feat_size'], dtype=int)
-                feat_width = data['feat_width']
         else:
             generator_weight_path = './saved_models/bc/generator.h5'
 
@@ -183,12 +184,11 @@ class InfoGAIL():
                     'norm_time': np.array(data['train_norm_time'], dtype=np.float64)
                 }
                 feature_size = np.array(data['train_feat_size'], dtype=int)
-                feat_width = data['feat_width']
         
         models.generator.model.load_weights(generator_weight_path)
         models.generator.old_model.load_weights(generator_weight_path)
         # train_start_pos, train_start_codes = extract_start_pos(features, feature_size, feat_width)
-        partial_start_pos, partial_start_codes, partial_feat_size, partial_intervals = self.partial_starting_points(features, feature_size, feat_width)
+        partial_start_pos, partial_start_codes, partial_feat_size, partial_intervals = self.partial_starting_points(features, feature_size)
         print('\nTraining setup ready!')
 
         for episode in trange(self.starting_episode, self.episodes, desc="Episode"):
@@ -233,7 +233,10 @@ class InfoGAIL():
             # train discriminator
             # Sample state-action pairs χi ~ τi and χΕ ~ τΕ with the same batch size
             expert_idx = np.random.choice(features['states'].shape[0], TRAIN_BATCH_SIZE, replace=False)
-            generated_idx = np.random.choice(generated_states.shape[0], TRAIN_BATCH_SIZE, replace=False)
+            sample_population = int((TRAIN_BATCH_SIZE * 100) / 70.0)
+            generated_idx_also_for_post = np.random.choice(generated_states.shape[0], sample_population, replace=False)
+            generated_idx = generated_idx_also_for_post[:TRAIN_BATCH_SIZE]
+            
             shuffled_expert_states = features['states'][expert_idx, :]
             shuffled_expert_actions = features['actions'][expert_idx, :]
             shuffled_generated_states = generated_states[generated_idx, :]
@@ -294,18 +297,29 @@ class InfoGAIL():
             # shuffled_generated_states = tf.convert_to_tensor(shuffled_generated_states, dtype=tf.float64)
             # shuffled_generated_actions = tf.convert_to_tensor(shuffled_generated_actions, dtype=tf.float64)
             # shuffled_generated_codes = tf.convert_to_tensor(shuffled_generated_codes, dtype=tf.float64)
-            dataset = tf.data.Dataset.from_tensor_slices((shuffled_generated_states, shuffled_generated_actions, shuffled_generated_codes))
-            dataset = dataset.batch(batch_size=self.batch)
 
-            loss = models.posterior.train(dataset)
-            if save_loss: self.post_result.append(loss)
+            # create validation dataset for posterior
+            val_generated_idx = generated_idx_also_for_post[TRAIN_BATCH_SIZE:]
+            val_generated_states = generated_states[val_generated_idx, :]
+            val_generated_actions = generated_actions[val_generated_idx, :]
+            val_generated_codes = generated_codes[val_generated_idx, :]
+            train_dataset = tf.data.Dataset.from_tensor_slices((shuffled_generated_states, shuffled_generated_actions, shuffled_generated_codes))
+            train_dataset = train_dataset.batch(batch_size=self.batch)
+            val_dataset = tf.data.Dataset.from_tensor_slices((val_generated_states, val_generated_actions, val_generated_codes))
+            val_dataset = val_dataset.batch(batch_size=self.batch)
+
+            train_loss = models.posterior.train(train_dataset)
+            val_loss = models.posterior.train(val_dataset)
+            if save_loss:
+                self.post_result.append(train_loss)
+                self.post_result_val.append(val_loss)
 
             # TRPO/PPO
             # calculate rewards from discriminator and posterior
             episode_rewards = []
             for traj in trajectories:
                 reward_d = (-tf.math.log(tf.keras.activations.sigmoid(models.discriminator.model([traj['states'], traj['actions']], training=False)))).numpy()
-                reward_p = models.posterior.model([traj['states'], traj['actions']], training=False).numpy()
+                reward_p = models.posterior.target_model([traj['states'], traj['actions']], training=False).numpy()
                 reward_p = np.sum(np.ma.log(reward_p).filled(0) * traj['codes'], axis=1).flatten() # np.ma.log over tf.math.log, fixes log of zero
 
                 traj['rewards'] = reward_d.flatten() + reward_p
@@ -371,19 +385,21 @@ class InfoGAIL():
                 models.generator.model.save_weights('./saved_models/trpo/generator.h5')
                 models.discriminator.model.save_weights('./saved_models/trpo/discriminator.h5')
                 models.posterior.model.save_weights('./saved_models/trpo/posterior.h5')
+                models.posterior.target_model.save_weights('./saved_models/trpo/posterior_target.h5')
                 models.value_net.model.save_weights('./saved_models/trpo/value_net.h5')
                 yaml_conf = {
                     'episode': episode+1,
                     'gen_loss': self.gen_result,
                     'disc_loss': self.disc_result,
                     'post_loss': self.post_result,
+                    'post_loss_val': self.post_result_val,
                     'value_loss': self.value_result
                 }
                 
                 with open("./saved_models/trpo/model.yml", 'w') as f:
                     yaml.dump(yaml_conf, f, sort_keys=False, default_flow_style=False)
 
-    def partial_starting_points(self, features, feature_size, feat_width):
+    def partial_starting_points(self, features, feature_size):
         intervals = [0.0, 20.0, 40.0, 60.0, 80.0]
         part_start_pos = []
         part_start_codes = []
@@ -399,7 +415,7 @@ class InfoGAIL():
             # get starting positions
             for ci in intervals:
                 partial_expert_idx = np.where(expert_norm_time >= ci)[0]
-                part_start_pos.append(expert_states[partial_expert_idx[0], -feat_width:])
+                part_start_pos.append(expert_states[partial_expert_idx[0]])
                 part_start_codes.append(expert_codes[partial_expert_idx[0]])
                 part_feat_size.append(partial_expert_idx.shape[0])
                 partial_interval.append(ci)
@@ -414,6 +430,7 @@ class InfoGAIL():
         models.generator.model.load_weights('./saved_models/trpo/generator.h5')
         models.discriminator.model.load_weights('./saved_models/trpo/discriminator.h5')
         models.posterior.model.load_weights('./saved_models/trpo/posterior.h5')
+        models.posterior.target_model.load_weights('./saved_models/trpo/posterior_target.h5')
 
         with open("./saved_models/trpo/dataset.yml", 'r') as f:
             data = yaml.safe_load(f)
@@ -430,14 +447,13 @@ class InfoGAIL():
                 'codes': np.array(data['train_codes'], dtype=np.float64)
             }
             feature_size = np.array(data['test_feat_size'], dtype=int)
-            feat_width = data['feat_width']
         
         # InfoGAIL accuracy method
         sampled_expert_idx = np.random.choice(training_features['states'].shape[0], 1000, replace=False)
         sampled_expert_states = training_features['states'][sampled_expert_idx, :]
         sampled_expert_actions = training_features['actions'][sampled_expert_idx, :]
         sampled_expert_codes = np.argmax(training_features['codes'][sampled_expert_idx, :], axis=1)
-        probs = models.posterior.model([sampled_expert_states, sampled_expert_actions], training=False).numpy()
+        probs = models.posterior.target_model([sampled_expert_states, sampled_expert_actions], training=False).numpy()
         codes_pred = np.argmax(probs, axis=1)
 
         print('Posterior accuracy over expert state-action pairs')
@@ -495,7 +511,7 @@ class InfoGAIL():
                 partial_features['states'].append(expert_states[partial_expert_idx, :])
                 partial_features['actions'].append(expert_actions[partial_expert_idx, :])
                 partial_features['codes'].append(expert_codes[partial_expert_idx, :])
-                part_start_pos.append(expert_states[partial_expert_idx[0], -feat_width:])
+                part_start_pos.append(expert_states[partial_expert_idx[0]])
                 part_start_codes.append(expert_codes[partial_expert_idx[0]])
                 part_feat_size.append(partial_expert_idx.shape[0])
                 pos += sz
@@ -578,6 +594,21 @@ class InfoGAIL():
                         best_traj['states'] = np.copy(generated_states)
                         best_traj['actions'] = np.copy(generated_actions)
                         best_traj['codes'] = np.copy(generated_codes)
+                
+                if expert_i == 60 and count == 0:
+                    # plot best and expert trajectories
+                    # plt.figure(1)
+                    # plt.scatter(best_traj['states'][:, 0], best_traj['states'][:, 1], alpha=0.6)
+                    # plt.scatter(expert_states[:, 0], expert_states[:, 1], alpha=0.6)
+                    # plt.legend(['generated', 'expert'], loc='lower right')
+                    # plt.savefig('./plots/trajectories', dpi=100)
+                    # plt.close(1)
+                    plt.figure(1)
+                    plt.scatter(np.arange(best_traj['states'].shape[0]), best_traj['states'][:, 2])
+                    plt.scatter(np.arange(expert_states.shape[0]), expert_states[:, 2], alpha=0.6)
+                    plt.legend(['generated', 'expert'], loc='lower right')
+                    plt.savefig('./plots/trajectories', dpi=100)
+                    plt.close(1)
                 
                 # percentages for the partial trajectory
                 part_prob = models.posterior.model([best_traj['states'], best_traj['actions']], training=False)
@@ -755,8 +786,8 @@ class InfoGAIL():
         plt.savefig('./plots/test_net_losses', dpi=100)
         plt.close()
 
-models = Models(state_dims=5, action_dims=1, code_dims=3)
-# models = Models(state_dims=5, action_dims=1, code_dims=3)
+models = Models(state_dims=3, action_dims=3, code_dims=3)
+# models = Models(state_dims=1, action_dims=1, code_dims=3)
 
 # main
 def main():

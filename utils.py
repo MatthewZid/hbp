@@ -13,7 +13,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 OBJ_SIZE_POS = 4
 PROB_THRESHOLD = 0.6
 DIST_THRESHOLD = 10
-WINDOW = 9
+WINDOW = 10
 MOVEMENTS = 715
 
 improved = 0
@@ -21,7 +21,7 @@ save_loss = True
 save_models = True
 resume_training = False
 use_ppo = False
-LOGSTD = tf.math.log(0.008)
+LOGSTD = tf.math.log(0.005)
 SPEED = 0.02
 BUFFER_RATIO = 0.67
 TRAIN_BATCH_SIZE = 2000
@@ -446,7 +446,8 @@ def extract_norm_apertures_wrist_mdp(dataset):
     
     for tp in ['train', 'test']:
         for key in keys[tp]:
-            points = pd.concat([new_dataset[key]['apertures'], new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y']], axis=1).to_numpy()
+            # points = pd.concat([new_dataset[key]['apertures'], new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y']], axis=1).to_numpy()
+            points = pd.concat([new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y'], new_dataset[key]['apertures']], axis=1).to_numpy()
             # points = new_dataset[key]['apertures'].to_numpy()
             features[tp]['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0] - 1)]))
             features[tp]['time'].append(new_dataset[key]['time'].iloc[:-1].to_numpy())
@@ -463,39 +464,39 @@ def extract_norm_apertures_wrist_mdp(dataset):
     # data['test'] = state_scaler.transform(data['test'])
     # ...OR...
     wrist_scaler = MinMaxScaler(feature_range=(-1,1))
-    # aperture_scaler = StandardScaler()
-    train_apertures = data['train'][:, 0].reshape((-1, 1)) - data['train'][:, 0].reshape((-1, 1)).min()
-    test_apertures = data['test'][:, 0].reshape((-1, 1)) - data['test'][:, 0].reshape((-1, 1)).min()
-    # train_apertures = aperture_scaler.fit_transform(data['train'][:, 0].reshape((-1, 1)))
-    # test_apertures = aperture_scaler.transform(data['test'][:, 0].reshape((-1, 1)))
-    train_wrist = wrist_scaler.fit_transform(data['train'][:, 1:])
-    test_wrist = wrist_scaler.transform(data['test'][:, 1:])
-    data['train'] = np.concatenate([train_apertures, train_wrist], axis=1)
-    data['test'] = np.concatenate([test_apertures, test_wrist], axis=1)
+    train_apertures = data['train'][:, -1].reshape((-1, 1)) - data['train'][:, -1].reshape((-1, 1)).min()
+    test_apertures = data['test'][:, -1].reshape((-1, 1)) - data['test'][:, -1].reshape((-1, 1)).min()
+    # train_apertures = data['train'][:, 0].reshape((-1, 1)) - data['train'][:, 0].reshape((-1, 1)).min()
+    # test_apertures = data['test'][:, 0].reshape((-1, 1)) - data['test'][:, 0].reshape((-1, 1)).min()
+    train_wrist = wrist_scaler.fit_transform(data['train'][:, :-1])
+    test_wrist = wrist_scaler.transform(data['test'][:, :-1])
+    data['train'] = np.concatenate([train_wrist, train_apertures], axis=1)
+    data['test'] = np.concatenate([test_wrist, test_apertures], axis=1)
     # data['train'] = np.expand_dims(train_apertures, axis=1)
     # data['test'] = np.expand_dims(test_apertures, axis=1)
 
     for tp in ['train', 'test']:
         pos = 0
         for sz in feature_size[tp]:
-            window = np.zeros((5,data[tp].shape[1]), dtype=np.float64)
-            for i in range(5):
-                window[i,0] = data[tp][pos,0]
-                window[i,1] = data[tp][pos,1]
-                window[i,2] = data[tp][pos,2]
-            states = [np.copy(window.flatten())]
+            # window = np.zeros((5,data[tp].shape[1]), dtype=np.float64)
+            # for i in range(5):
+            #     window[i,0] = data[tp][pos,0]
+            #     window[i,1] = data[tp][pos,1]
+            #     window[i,2] = data[tp][pos,2]
+            # states = [np.copy(window.flatten())]
             features[tp]['actions'].append(data[tp][pos+1:pos+sz, :] - data[tp][pos:pos+sz-1, :])
 
-            for i in range(pos+1, pos+sz-1):
-                for j in range(4): window[j,:] = window[j+1,:]
-                window[4,:] = data[tp][i,:]
-                states.append(np.copy(window.flatten()))
+            # for i in range(pos+1, pos+sz-1):
+            #     for j in range(4): window[j,:] = window[j+1,:]
+            #     window[4,:] = data[tp][i,:]
+            #     states.append(np.copy(window.flatten()))
+            states = np.copy(data[tp][pos:pos+sz-1])
             
-            states = np.array(states, dtype=np.float64)
+            # states = np.array(states, dtype=np.float64)
             new_feature_size[tp].append(states.shape[0])
             features[tp]['states'].append(states)
             pos += sz
-        
+
         features[tp]['states'] = np.concatenate(features[tp]['states'], axis=0, dtype=np.float64)
         features[tp]['actions'] = np.concatenate(features[tp]['actions'], axis=0, dtype=np.float64)
         features[tp]['codes'] = np.concatenate(features[tp]['codes'], axis=0, dtype=np.float64)
@@ -503,16 +504,15 @@ def extract_norm_apertures_wrist_mdp(dataset):
         features[tp]['norm_time'] = np.concatenate(features[tp]['norm_time'], axis=0, dtype=np.float64)
         new_feature_size[tp] = np.array(new_feature_size[tp], dtype=int)
 
-    return features, new_feature_size, dataset, 3
-    # return features, new_feature_size, dataset, 1
+    return features, new_feature_size, dataset
 
-def extract_start_pos(features, feat_size, feat_col_len):
+def extract_start_pos(features, feat_size):
     start_pos = []
     codes = []
     pos = 0
 
     for sz in feat_size:
-        start_pos.append(features['states'][pos, -feat_col_len:])
+        start_pos.append(features['states'][pos])
         codes.append(features['codes'][pos])
         pos += sz
     

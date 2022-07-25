@@ -229,6 +229,7 @@ class Posterior():
         self.action_dims = action_dims
         self.code_dims = code_dims
         self.model = self.create_posterior()
+        self.target_model = self.create_posterior()
         self.posterior_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
     
     def create_posterior(self):
@@ -270,6 +271,25 @@ class Posterior():
         
         episode_loss = loss / total_train_size
         episode_loss = episode_loss.item()
+
+        # set posterior target weights
+        posterior_weights = self.model.get_weights()
+        posterior_target_weights = self.target_model.get_weights()
+        for i in range(len(posterior_weights)):
+            posterior_target_weights[i] = 0.5 * posterior_weights[i] + 0.5 * posterior_target_weights[i]
+            self.target_model.set_weights(posterior_target_weights)
+
+        return episode_loss
+    
+    def validate(self, dataset):
+        loss = 0.0
+        total_val_size = sum([el[0].shape[0] for el in list(dataset.as_numpy_iterator())])
+        for _, (states_batch, actions_batch, codes_batch) in enumerate(dataset):
+            prob = self.target_model([states_batch, actions_batch], training=False)
+            post_loss = self.__post_loss(prob, codes_batch)
+            loss += tf.get_static_value(post_loss) * states_batch.shape[0]
+        
+        episode_loss = loss / total_val_size
 
         return episode_loss
 
