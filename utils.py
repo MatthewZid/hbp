@@ -9,6 +9,7 @@ import tensorflow as tf
 import math
 from scipy import signal
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+import seaborn as sn
 
 OBJ_SIZE_POS = 4
 PROB_THRESHOLD = 0.6
@@ -418,7 +419,7 @@ def extract_norm_apertures_wrist_mdp(dataset):
         nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
         if nans.shape[0] > 0:
             if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
-            dataset[key] = dataset[key].interpolate(method='linear')
+            dataset[key] = dataset[key].interpolate(method='linear', axis=0)
         new_dataset[key] = dataset[key].copy()
     
     obj_size = {'S': [], 'M': [], 'L': []}
@@ -517,6 +518,108 @@ def extract_start_pos(features, feat_size):
         pos += sz
     
     return np.array(start_pos, dtype=np.float64), np.array(codes, dtype=np.float64)
+
+def plot_expert_init(dataset):
+    total_features = []
+    total_parts = []
+    total_sizes = []
+
+    for key in dataset.keys():
+        # per participant and size
+        participant = key.split('_')[0]
+
+        time_feat = dataset[key]['Time'].iloc[WINDOW:].reset_index(drop=True)
+        abs_time = time_feat.to_numpy()
+        norm_time = np.expand_dims(100.0 * (abs_time - abs_time[0]) / (abs_time[-1] - abs_time[0]), axis=1)
+        x1 = dataset[key]['RThumb4FingerTip.x'].iloc[WINDOW:].to_numpy()
+        y1 = dataset[key]['RThumb4FingerTip.y'].iloc[WINDOW:].to_numpy()
+        x2 = dataset[key]['RIndex4FingerTip.x'].iloc[WINDOW:].to_numpy()
+        y2 = dataset[key]['RIndex4FingerTip.y'].iloc[WINDOW:].to_numpy()
+        apertures = np.expand_dims(np.sqrt(np.power(x1 - x2, 2) + np.power(y1 - y2, 2)), axis=1)
+        wristx = np.expand_dims(dataset[key]['RWrist.x'].iloc[WINDOW:].reset_index(drop=True).to_numpy(), axis=1)
+        wristy = np.expand_dims(dataset[key]['RWrist.y'].iloc[WINDOW:].reset_index(drop=True).to_numpy(), axis=1)
+
+        points = np.concatenate([wristx, wristy, apertures, norm_time], axis=1)
+        total_features.append(np.copy(points))
+        total_parts.append(np.array([participant] * points.shape[0]))
+        total_sizes.append(np.array([key[OBJ_SIZE_POS]] * points.shape[0]))
+    
+    total_features = np.concatenate(total_features, axis=0)
+    total_parts = np.expand_dims(np.concatenate(total_parts, axis=0), axis=1)
+    total_sizes = np.expand_dims(np.concatenate(total_sizes, axis=0), axis=1)
+    npdata = np.concatenate([total_features, total_parts, total_sizes], axis=1)
+    df = pd.DataFrame(npdata, columns=['x','y','a','t','p','Size'])
+    df[['x','y','a','t']] = df[['x','y','a','t']].astype(float)
+    # df[['x','y','a','t']] = df[['x','y','a','t']].astype(int)
+    for part in df['p'].unique():
+        part_df = df[df['p'] == part]
+        plt.figure()
+        # sn.relplot(data=part_df, x="t", y="a", hue="Size", kind="line", ci="sd", hue_order=['S','M','L'])
+        sn.scatterplot(data=part_df, x="t", y="a", hue="Size", hue_order=['S','M','L'], alpha=0.6)
+        plt.xlabel('R-t-G movement completion (%)')
+        # plt.xlabel('x-wrist')
+        plt.ylabel('TI-Aperture')
+        plt.savefig('./plots/'+part, dpi=100)
+        plt.close()
+
+def plot_interp_expert(dataset):
+    total_features = []
+    total_parts = []
+    total_sizes = []
+    interp_flags = []
+
+    for key in dataset.keys():
+        nans = np.isnan(dataset[key]['apertures'].to_numpy())
+        nans_pos = np.where(nans)[0]
+        if nans_pos.shape[0] > 0:
+            if nans_pos[-1] == (len(dataset[key]['apertures'])-1) or nans_pos[0] == 0: continue
+            dataset[key] = dataset[key].interpolate(method='linear', axis=0)
+
+        # per participant and size
+        participant = key.split('_')[0]
+        points = pd.concat([dataset[key]['wrist_x'], dataset[key]['wrist_y'], dataset[key]['apertures'], dataset[key]['norm_time']], axis=1).to_numpy()
+        total_features.append(np.copy(points))
+        total_parts.append(np.array([participant] * points.shape[0]))
+        total_sizes.append(np.array([key[OBJ_SIZE_POS]] * points.shape[0]))
+        interp_flags.append(np.array(nans))
+    
+    total_features = np.concatenate(total_features, axis=0)
+    df = pd.DataFrame({
+        'x': pd.Series(total_features[:,0], dtype=float),
+        'y': pd.Series(total_features[:,1], dtype=float),
+        'a': pd.Series(total_features[:,2], dtype=float),
+        't': pd.Series(total_features[:,3], dtype=float),
+        'p': pd.Series(np.concatenate(total_parts, axis=0), dtype=str),
+        'Size': pd.Series(np.concatenate(total_sizes, axis=0), dtype=str),
+        'i': pd.Series(np.concatenate(interp_flags, axis=0), dtype=bool)
+    })
+
+    # df[['x','y','a','t']] = df[['x','y','a','t']].astype(int)
+    for part in df['p'].unique():
+        part_df = df[df['p'] == part]
+        true_interp_df = part_df[part_df['i'] == True]
+        true_small = true_interp_df[true_interp_df['Size'] == 'S']
+        true_medium = true_interp_df[true_interp_df['Size'] == 'M']
+        true_large = true_interp_df[true_interp_df['Size'] == 'L']
+
+        false_interp_df = part_df[part_df['i'] == False]
+        false_small = false_interp_df[false_interp_df['Size'] == 'S']
+        false_medium = false_interp_df[false_interp_df['Size'] == 'M']
+        false_large = false_interp_df[false_interp_df['Size'] == 'L']
+        plt.figure()
+        # sn.relplot(data=part_df, x="t", y="a", hue="Size", kind="line", ci="sd", hue_order=['S','M','L'])
+        # sn.scatterplot(data=part_df, x="t", y="a", hue="Size", hue_order=['S','M','L'], alpha=0.6)
+        plt.scatter(false_small['t'].to_numpy(), false_small['a'].to_numpy(), alpha=0.5, label='Small', s=20)
+        plt.scatter(false_medium['t'].to_numpy(), false_medium['a'].to_numpy(), alpha=0.5, label='Medium', color='orange', s=20)
+        plt.scatter(false_large['t'].to_numpy(), false_large['a'].to_numpy(), alpha=0.5, label='Large', color='green', s=20)
+        plt.scatter(true_small['t'].to_numpy(), true_small['a'].to_numpy(), label='Small interp', color='cyan', marker='+', s=50)
+        plt.scatter(true_medium['t'].to_numpy(), true_medium['a'].to_numpy(), label='Medium interp', color='black', marker='+', s=50)
+        plt.scatter(true_large['t'].to_numpy(), true_large['a'].to_numpy(), label='Large interp', color='red', marker='+', s=50)
+        plt.xlabel('R-t-G movement completion (%)')
+        plt.ylabel('TI-Aperture')
+        plt.legend(loc='upper left', prop={'size': 6})
+        plt.savefig('./plots/'+part, dpi=100)
+        plt.close()
 
 def movement_end(dataset):
     ignored = 0
