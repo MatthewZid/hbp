@@ -427,8 +427,9 @@ class InfoGAIL():
         features = {}
         feature_size = None
 
-        plot_comp = True
+        plot_comp = False
         plot_basic_stats = False
+        plot_gen_traj = True
 
         models.generator.model.load_weights('./saved_models/trpo/generator.h5')
         models.discriminator.model.load_weights('./saved_models/trpo/discriminator.h5')
@@ -625,6 +626,31 @@ class InfoGAIL():
                 expert_i += 1
             
             count += 1
+        
+        if plot_gen_traj:
+            # plot generated trajectories
+            total_best = np.concatenate(total_best, axis=0)
+            bestdf = pd.DataFrame({
+                'x': pd.Series(total_best[:, 0], dtype=float),
+                'y': pd.Series(total_best[:, 1], dtype=float),
+                'a': pd.Series(total_best[:, 2], dtype=float),
+                'c': pd.Series(np.argmax(features['codes'], axis=1), dtype=int),
+                't': pd.Series(features['norm_time'], dtype=float)
+            })
+
+            small = bestdf[bestdf['c'] == 0]
+            medium = bestdf[bestdf['c'] == 1]
+            large = bestdf[bestdf['c'] == 2]
+
+            plt.figure()
+            plt.scatter(small['t'].to_numpy(), small['y'].to_numpy(), alpha=0.6, label='Small', s=40, edgecolors='white')
+            plt.scatter(medium['t'].to_numpy(), medium['y'].to_numpy(), alpha=0.6, label='Medium', s=40, edgecolors='white')
+            plt.scatter(large['t'].to_numpy(), large['y'].to_numpy(), alpha=0.6, label='Large', s=40, edgecolors='white')
+            plt.xlabel('R-t-G movement completion (%)')
+            plt.ylabel('y-wrist')
+            plt.legend(loc='upper left', prop={'size': 9})
+            plt.savefig('./plots/generated_ywrist', dpi=100)
+            plt.close('all')
         
         if plot_comp:
             # plot generated and expert trajectories
