@@ -29,7 +29,7 @@ TRAIN_BATCH_SIZE = 2000
 
 def read_expert(dataset_name='preprocessed_2D'):
     # data path
-    basepath = '/home/matthew/Documents/AI/thesis/hbp/dataset'
+    basepath = '/home/matthew/Documents/AI/thesis/src/hbp/dataset'
     datapath = os.path.join(basepath, dataset_name)
 
     # init dataset dict
@@ -560,7 +560,7 @@ def plot_expert_init(dataset):
         # plt.xlabel('x-wrist')
         plt.ylabel('TI-Aperture')
         plt.savefig('./plots/'+part, dpi=100)
-        plt.close()
+        plt.close('all')
 
 def plot_interp_expert(dataset):
     total_features = []
@@ -619,7 +619,7 @@ def plot_interp_expert(dataset):
         plt.ylabel('TI-Aperture')
         plt.legend(loc='upper left', prop={'size': 6})
         plt.savefig('./plots/'+part, dpi=100)
-        plt.close()
+        plt.close('all')
 
 def movement_end(dataset):
     ignored = 0
