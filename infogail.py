@@ -427,6 +427,9 @@ class InfoGAIL():
         features = {}
         feature_size = None
 
+        plot_comp = True
+        plot_basic_stats = False
+
         models.generator.model.load_weights('./saved_models/trpo/generator.h5')
         models.discriminator.model.load_weights('./saved_models/trpo/discriminator.h5')
         models.posterior.model.load_weights('./saved_models/trpo/posterior.h5')
@@ -479,6 +482,7 @@ class InfoGAIL():
         }
 
         obj_size = {'Small': 0, 'Medium': 1, 'Large': 2}
+        obj_size_inv = {'0': 'Small', '1': 'Medium', '2': 'Large'}
 
         for i in range(len(intervals)):
             part_prob_percs_per_object.append([])
@@ -488,6 +492,8 @@ class InfoGAIL():
                 part_prob_percs_per_object[i].append([])
                 for _ in range(features['codes'].shape[1]):
                     part_prob_percs_per_object[i][j].append([])
+        
+        total_best = []
 
         # partial movements
         print('Starting from completion percentage (e.g. 40%) until movement completion:')
@@ -594,21 +600,8 @@ class InfoGAIL():
                         best_traj['states'] = np.copy(generated_states)
                         best_traj['actions'] = np.copy(generated_actions)
                         best_traj['codes'] = np.copy(generated_codes)
-                
-                if expert_i == 60 and count == 0:
-                    # plot best and expert trajectories
-                    # plt.figure(1)
-                    # plt.scatter(best_traj['states'][:, 0], best_traj['states'][:, 1], alpha=0.6)
-                    # plt.scatter(expert_states[:, 0], expert_states[:, 1], alpha=0.6)
-                    # plt.legend(['generated', 'expert'], loc='lower right')
-                    # plt.savefig('./plots/trajectories', dpi=100)
-                    # plt.close(1)
-                    plt.figure(1)
-                    plt.scatter(np.arange(best_traj['states'].shape[0]), best_traj['states'][:, 2])
-                    plt.scatter(np.arange(expert_states.shape[0]), expert_states[:, 2], alpha=0.6)
-                    plt.legend(['generated', 'expert'], loc='lower right')
-                    plt.savefig('./plots/trajectories', dpi=100)
-                    plt.close(1)
+                    
+                if count == 0: total_best.append(best_traj['states'])
                 
                 # percentages for the partial trajectory
                 part_prob = models.posterior.model([best_traj['states'], best_traj['actions']], training=False)
@@ -632,159 +625,190 @@ class InfoGAIL():
                 expert_i += 1
             
             count += 1
+        
+        if plot_comp:
+            # plot generated and expert trajectories
+            total_best = np.concatenate(total_best, axis=0)
 
-        # plot partial trajectory results
-        count = 0
-        for ci in intervals:
-            cm = confusion_matrix(part_total_codes_true[count], part_total_codes_pred[count])
+            expertdf = pd.DataFrame({
+                'x': pd.Series(features['states'][:, 0], dtype=float),
+                'y': pd.Series(features['states'][:, 1], dtype=float),
+                'a': pd.Series(features['states'][:, 2], dtype=float),
+                'c': pd.Series(np.argmax(features['codes'], axis=1), dtype=int),
+                't': pd.Series(features['norm_time'], dtype=float)
+            })
+
+            bestdf = pd.DataFrame({
+                'x': pd.Series(total_best[:, 0], dtype=float),
+                'y': pd.Series(total_best[:, 1], dtype=float),
+                'a': pd.Series(total_best[:, 2], dtype=float)
+            })
+
+            for i in range(features['codes'].shape[1]):
+                expsize_df = expertdf[expertdf['c'] == i]
+                bestsize_df = bestdf.loc[list(expsize_df.index)]
+                plt.figure()
+                plt.scatter(expsize_df['t'].to_numpy(), expsize_df['y'].to_numpy(), alpha=0.6, label='Expert', s=40, edgecolors='white')
+                plt.scatter(expsize_df['t'].to_numpy(), bestsize_df['y'].to_numpy(), alpha=0.6, label='Generated', s=40, edgecolors='white')
+                plt.xlabel('R-t-G movement completion (%)')
+                plt.ylabel('y-wrist')
+                plt.legend(loc='upper left', prop={'size': 9})
+                plt.savefig('./plots/'+obj_size_inv[str(i)], dpi=100)
+                plt.close('all')
+
+        if plot_basic_stats:
+            # plot partial trajectory results
+            count = 0
+            for ci in intervals:
+                cm = confusion_matrix(part_total_codes_true[count], part_total_codes_pred[count])
+                group_counts = ['{}'.format(v) for v in cm.flatten()]
+                group_perc = ['{:.2%}'.format(v) for v in cm.flatten()/np.sum(cm)]
+                annot_labels = [f'{v1}\n({v2})' for v1,v2 in zip(group_perc, group_counts)]
+                annot_labels = np.asarray(annot_labels).reshape(cm.shape)
+                hm = sn.heatmap(cm, annot=annot_labels, fmt='', cmap='Blues')
+                hm.set_title('Mode confusion matrix: '+str(int(ci))+'% completion')
+                hm.set_xlabel('Predicted modes')
+                hm.set_ylabel('Actual modes')
+                hm.set_xticklabels(['Small', 'Medium', 'Large'])
+                hm.set_yticklabels(['Small', 'Medium', 'Large'])
+                plt.savefig('./plots/cf_matrix_'+str(int(ci)), dpi=100)
+                plt.close()
+
+                print('{:d}%'.format(int(ci)))
+                print(classification_report(part_total_codes_true[count], part_total_codes_pred[count], zero_division=1))
+                print('-----------------------------------------------')
+
+                for sz in ['Small', 'Medium', 'Large']:
+                    plt.figure()
+                    plt.title(sz+': '+str(int(ci))+'% completion')
+                    plt.xlabel('Trajectory No.')
+                    plt.ylabel('Probability (%)')
+                    plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][0])), part_prob_percs_per_object[count][obj_size[sz]][0], alpha=0.6)
+                    plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][1])), part_prob_percs_per_object[count][obj_size[sz]][1], alpha=0.6)
+                    plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][2])), part_prob_percs_per_object[count][obj_size[sz]][2], alpha=0.6)
+                    plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
+                    plt.savefig('./plots/conf_percs_'+sz+'_'+str(int(ci)), dpi=100)
+                    plt.close()
+
+                count += 1
+            
+            # franken-trajectories
+            franken_codes_true = []
+            franken_codes_pred = []
+            franken_prob_perc_per_object = []
+
+            for i in range(features['codes'].shape[1]):
+                franken_prob_perc_per_object.append([])
+                for _ in range(features['codes'].shape[1]): franken_prob_perc_per_object[i].append([])
+
+            for _ in range(30):
+                random_code_idx = np.random.choice(features['codes'].shape[1], 2, replace=False)
+                random_upper_half_idx = np.random.choice(len(obj_trajectories[str(random_code_idx[0])]), 1)[0]
+                random_lower_half_idx = np.random.choice(len(obj_trajectories[str(random_code_idx[1])]), 1)[0]
+                upper_splitter = int((50 * obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][0].shape[0]) / 100.0)
+                lower_splitter = int((50 * obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][0].shape[0]) / 100.0)
+                random_upper_half = (obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][0][:upper_splitter], \
+                                    obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][1][:upper_splitter])
+                random_lower_half = (obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][0][lower_splitter:], \
+                                    obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][1][lower_splitter:])
+                
+                franken_traj = {}
+                franken_traj['states'] = np.concatenate([random_upper_half[0], random_lower_half[0]], axis=0)
+                franken_traj['actions'] = np.concatenate([random_upper_half[1], random_lower_half[1]], axis=0)
+                franken_true_code = random_code_idx[1]
+
+                franken_prob = models.posterior.model([franken_traj['states'], franken_traj['actions']], training=False)
+                franken_prob_mean = tf.reduce_mean(franken_prob, axis=0).numpy()
+                franken_prob_pred = np.argmax(franken_prob_mean)
+                franken_prob_perc_per_object[franken_true_code][0].append(franken_prob_mean[0])
+                franken_prob_perc_per_object[franken_true_code][1].append(franken_prob_mean[1])
+                franken_prob_perc_per_object[franken_true_code][2].append(franken_prob_mean[2])
+                franken_codes_true.append(franken_true_code)
+                franken_codes_pred.append(franken_prob_pred)
+            
+            cm = confusion_matrix(franken_codes_true, franken_codes_pred)
             group_counts = ['{}'.format(v) for v in cm.flatten()]
             group_perc = ['{:.2%}'.format(v) for v in cm.flatten()/np.sum(cm)]
             annot_labels = [f'{v1}\n({v2})' for v1,v2 in zip(group_perc, group_counts)]
             annot_labels = np.asarray(annot_labels).reshape(cm.shape)
             hm = sn.heatmap(cm, annot=annot_labels, fmt='', cmap='Blues')
-            hm.set_title('Mode confusion matrix: '+str(int(ci))+'% completion')
+            hm.set_title('Mixed Mode confusion matrix')
             hm.set_xlabel('Predicted modes')
             hm.set_ylabel('Actual modes')
             hm.set_xticklabels(['Small', 'Medium', 'Large'])
             hm.set_yticklabels(['Small', 'Medium', 'Large'])
-            plt.savefig('./plots/cf_matrix_'+str(int(ci)), dpi=100)
+            plt.savefig('./plots/franken_cf_matrix', dpi=100)
             plt.close()
-
-            print('{:d}%'.format(int(ci)))
-            print(classification_report(part_total_codes_true[count], part_total_codes_pred[count], zero_division=1))
-            print('-----------------------------------------------')
 
             for sz in ['Small', 'Medium', 'Large']:
                 plt.figure()
-                plt.title(sz+': '+str(int(ci))+'% completion')
+                plt.title('Mixed probabilities: '+sz)
                 plt.xlabel('Trajectory No.')
                 plt.ylabel('Probability (%)')
-                plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][0])), part_prob_percs_per_object[count][obj_size[sz]][0], alpha=0.6)
-                plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][1])), part_prob_percs_per_object[count][obj_size[sz]][1], alpha=0.6)
-                plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][2])), part_prob_percs_per_object[count][obj_size[sz]][2], alpha=0.6)
+                plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][0])), franken_prob_perc_per_object[obj_size[sz]][0], alpha=0.6)
+                plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][1])), franken_prob_perc_per_object[obj_size[sz]][1], alpha=0.6)
+                plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][2])), franken_prob_perc_per_object[obj_size[sz]][2], alpha=0.6)
                 plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
-                plt.savefig('./plots/conf_percs_'+sz+'_'+str(int(ci)), dpi=100)
+                plt.savefig('./plots/franken_conf_percs_'+sz, dpi=100)
                 plt.close()
 
-            count += 1
-        
-        # franken-trajectories
-        franken_codes_true = []
-        franken_codes_pred = []
-        franken_prob_perc_per_object = []
+            # multiple random starting points
+            # p = 0
+            # for traj in trajectories:
+            #     pos = feature_size[:pick[p]].sum()
 
-        for i in range(features['codes'].shape[1]):
-            franken_prob_perc_per_object.append([])
-            for _ in range(features['codes'].shape[1]): franken_prob_perc_per_object[i].append([])
+            #     expert_states = features['states'][pos:pos+feature_size[pick[p]]]
+            #     expert_actions = features['actions'][pos:pos+feature_size[pick[p]]]
+            #     expert_norm_time = features['norm_time'][pos:pos+feature_size[pick[p]]]
 
-        for _ in range(30):
-            random_code_idx = np.random.choice(features['codes'].shape[1], 2, replace=False)
-            random_upper_half_idx = np.random.choice(len(obj_trajectories[str(random_code_idx[0])]), 1)[0]
-            random_lower_half_idx = np.random.choice(len(obj_trajectories[str(random_code_idx[1])]), 1)[0]
-            upper_splitter = int((50 * obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][0].shape[0]) / 100.0)
-            lower_splitter = int((50 * obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][0].shape[0]) / 100.0)
-            random_upper_half = (obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][0][:upper_splitter], \
-                                obj_trajectories[str(random_code_idx[0])][random_upper_half_idx][1][:upper_splitter])
-            random_lower_half = (obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][0][lower_splitter:], \
-                                obj_trajectories[str(random_code_idx[1])][random_lower_half_idx][1][lower_splitter:])
-            
-            franken_traj = {}
-            franken_traj['states'] = np.concatenate([random_upper_half[0], random_lower_half[0]], axis=0)
-            franken_traj['actions'] = np.concatenate([random_upper_half[1], random_lower_half[1]], axis=0)
-            franken_true_code = random_code_idx[1]
+            #     # posterior
+            #     few_examples = False
+            #     code_true = traj['code']
+            #     best_traj = {}
+            #     min_rmse = np.inf
 
-            franken_prob = models.posterior.model([franken_traj['states'], franken_traj['actions']], training=False)
-            franken_prob_mean = tf.reduce_mean(franken_prob, axis=0).numpy()
-            franken_prob_pred = np.argmax(franken_prob_mean)
-            franken_prob_perc_per_object[franken_true_code][0].append(franken_prob_mean[0])
-            franken_prob_perc_per_object[franken_true_code][1].append(franken_prob_mean[1])
-            franken_prob_perc_per_object[franken_true_code][2].append(franken_prob_mean[2])
-            franken_codes_true.append(franken_true_code)
-            franken_codes_pred.append(franken_prob_pred)
-        
-        cm = confusion_matrix(franken_codes_true, franken_codes_pred)
-        group_counts = ['{}'.format(v) for v in cm.flatten()]
-        group_perc = ['{:.2%}'.format(v) for v in cm.flatten()/np.sum(cm)]
-        annot_labels = [f'{v1}\n({v2})' for v1,v2 in zip(group_perc, group_counts)]
-        annot_labels = np.asarray(annot_labels).reshape(cm.shape)
-        hm = sn.heatmap(cm, annot=annot_labels, fmt='', cmap='Blues')
-        hm.set_title('Mixed Mode confusion matrix')
-        hm.set_xlabel('Predicted modes')
-        hm.set_ylabel('Actual modes')
-        hm.set_xticklabels(['Small', 'Medium', 'Large'])
-        hm.set_yticklabels(['Small', 'Medium', 'Large'])
-        plt.savefig('./plots/franken_cf_matrix', dpi=100)
-        plt.close()
+            #     for i in range(features['codes'].shape[1]):
+            #         shuffled_generated_states = traj['trajectories'][i]['states']
+            #         shuffled_generated_actions = traj['trajectories'][i]['actions']
+            #         shuffled_generated_codes = traj['trajectories'][i]['codes']
 
-        for sz in ['Small', 'Medium', 'Large']:
+            #         # rmse to find the closest generated trajectory to expert
+            #         rmse_traj = np.sqrt(mean_squared_error(expert_states, shuffled_generated_states))# / shuffled_expert_states.shape[0]
+            #         if rmse_traj < min_rmse:
+            #             min_rmse = rmse_traj
+            #             best_traj['states'] = np.copy(shuffled_generated_states)
+            #             best_traj['actions'] = np.copy(shuffled_generated_actions)
+            #             best_traj['codes'] = np.copy(shuffled_generated_codes)
+                
+            #     # percentages for the whole trajectory
+            #     prob = models.posterior.model([best_traj['states'], best_traj['actions']], training=False)
+            #     cross_entropy = tf.keras.losses.CategoricalCrossentropy()
+            #     loss = cross_entropy(best_traj['codes'], prob)
+            #     loss = tf.reduce_mean(loss).numpy()
+            #     total_eval_post.append(loss)
+            #     prob_mean = tf.reduce_mean(prob, axis=0).numpy()
+            #     prob_pred = np.argmax(prob_mean)
+            #     prob_percs_per_object[code_true][0].append(prob_mean[0])
+            #     prob_percs_per_object[code_true][1].append(prob_mean[1])
+            #     prob_percs_per_object[code_true][2].append(prob_mean[2])
+            #     # total_codes_true.append(np.argmax(best_traj['codes'][0]))
+            #     total_codes_true.append(code_true)
+            #     total_codes_pred.append(prob_pred)
+            #     total_rmse_true.append(code_true)
+            #     total_rmse_pred.append(np.argmax(best_traj['codes'][0]))
+
+            #     p += 1
+
             plt.figure()
-            plt.title('Mixed probabilities: '+sz)
+            plt.title('Net losses')
             plt.xlabel('Trajectory No.')
-            plt.ylabel('Probability (%)')
-            plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][0])), franken_prob_perc_per_object[obj_size[sz]][0], alpha=0.6)
-            plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][1])), franken_prob_perc_per_object[obj_size[sz]][1], alpha=0.6)
-            plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][2])), franken_prob_perc_per_object[obj_size[sz]][2], alpha=0.6)
-            plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
-            plt.savefig('./plots/franken_conf_percs_'+sz, dpi=100)
+            plt.ylabel('Loss')
+            plt.plot(np.arange(len(total_disc_expert)), total_disc_expert)
+            plt.plot(np.arange(len(total_disc_gen)), total_disc_gen)
+            plt.plot(np.arange(len(total_eval_post)), total_eval_post)
+            plt.legend(['disc expert ce', 'disc gen ce', 'post cross ent'], loc='upper left')
+            plt.savefig('./plots/test_net_losses', dpi=100)
             plt.close()
-
-        # multiple random starting points
-        # p = 0
-        # for traj in trajectories:
-        #     pos = feature_size[:pick[p]].sum()
-
-        #     expert_states = features['states'][pos:pos+feature_size[pick[p]]]
-        #     expert_actions = features['actions'][pos:pos+feature_size[pick[p]]]
-        #     expert_norm_time = features['norm_time'][pos:pos+feature_size[pick[p]]]
-
-        #     # posterior
-        #     few_examples = False
-        #     code_true = traj['code']
-        #     best_traj = {}
-        #     min_rmse = np.inf
-
-        #     for i in range(features['codes'].shape[1]):
-        #         shuffled_generated_states = traj['trajectories'][i]['states']
-        #         shuffled_generated_actions = traj['trajectories'][i]['actions']
-        #         shuffled_generated_codes = traj['trajectories'][i]['codes']
-
-        #         # rmse to find the closest generated trajectory to expert
-        #         rmse_traj = np.sqrt(mean_squared_error(expert_states, shuffled_generated_states))# / shuffled_expert_states.shape[0]
-        #         if rmse_traj < min_rmse:
-        #             min_rmse = rmse_traj
-        #             best_traj['states'] = np.copy(shuffled_generated_states)
-        #             best_traj['actions'] = np.copy(shuffled_generated_actions)
-        #             best_traj['codes'] = np.copy(shuffled_generated_codes)
-            
-        #     # percentages for the whole trajectory
-        #     prob = models.posterior.model([best_traj['states'], best_traj['actions']], training=False)
-        #     cross_entropy = tf.keras.losses.CategoricalCrossentropy()
-        #     loss = cross_entropy(best_traj['codes'], prob)
-        #     loss = tf.reduce_mean(loss).numpy()
-        #     total_eval_post.append(loss)
-        #     prob_mean = tf.reduce_mean(prob, axis=0).numpy()
-        #     prob_pred = np.argmax(prob_mean)
-        #     prob_percs_per_object[code_true][0].append(prob_mean[0])
-        #     prob_percs_per_object[code_true][1].append(prob_mean[1])
-        #     prob_percs_per_object[code_true][2].append(prob_mean[2])
-        #     # total_codes_true.append(np.argmax(best_traj['codes'][0]))
-        #     total_codes_true.append(code_true)
-        #     total_codes_pred.append(prob_pred)
-        #     total_rmse_true.append(code_true)
-        #     total_rmse_pred.append(np.argmax(best_traj['codes'][0]))
-
-        #     p += 1
-
-        plt.figure()
-        plt.title('Net losses')
-        plt.xlabel('Trajectory No.')
-        plt.ylabel('Loss')
-        plt.plot(np.arange(len(total_disc_expert)), total_disc_expert)
-        plt.plot(np.arange(len(total_disc_gen)), total_disc_gen)
-        plt.plot(np.arange(len(total_eval_post)), total_eval_post)
-        plt.legend(['disc expert ce', 'disc gen ce', 'post cross ent'], loc='upper left')
-        plt.savefig('./plots/test_net_losses', dpi=100)
-        plt.close()
 
 models = Models(state_dims=3, action_dims=3, code_dims=3)
 # models = Models(state_dims=1, action_dims=1, code_dims=3)
