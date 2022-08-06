@@ -170,26 +170,56 @@ def count_nan_apertures_per(dataset):
     group_by_mode['S'] = []
     group_by_mode['M'] = []
     group_by_mode['L'] = []
-    ignored = 0
+    # ignored = 0
+
+    for key in dataset.keys():
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        # if nans.shape[0] > 0:
+        #     if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0:
+        #         ignored += 1
+        #         continue
+
+        group_by_mode[key[OBJ_SIZE_POS]].append((nans.shape[0] / len(dataset[key])) * 100.0)
+    
+    # plt.figure()
+    # plt.title('Aperture NaN percentage for {:d} movements'.format(MOVEMENTS - ignored))
+    # plt.title('Aperture NaN percentage for {:d} movements'.format(len(list(dataset.keys()))))
+    # plt.xlabel('Movement index')
+    # plt.ylabel('NaN count (%)')
+    colors = ['blue', 'orange', 'green']
+    cnt = 0
+    for sz in ['S','M','L']:
+        plt.figure()
+        plt.xlabel('Movement index')
+        plt.ylabel('NaN count (%)')
+        plt.bar(np.arange(len(group_by_mode[sz])), group_by_mode[sz], color=colors[cnt])
+        cnt += 1
+        # plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
+        plt.savefig('./plots/count_nans_per_'+sz, dpi=100)
+        plt.close('all')
+
+def start_end_nan_per(dataset):
+    group_by_mode = {}
+    group_by_mode['S'] = []
+    group_by_mode['M'] = []
+    group_by_mode['L'] = []
 
     for key in dataset.keys():
         nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
         if nans.shape[0] > 0:
             if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0:
-                ignored += 1
-                continue
-
-        group_by_mode[key[OBJ_SIZE_POS]].append((nans.shape[0] / len(dataset[key])) * 100.0)
+                group_by_mode[key[OBJ_SIZE_POS]].append((nans.shape[0] / len(dataset[key])) * 100.0)
     
-    plt.figure()
-    plt.title('Aperture NaN percentage for {:d} movements'.format(MOVEMENTS - ignored))
-    plt.xlabel('Movement No.')
-    plt.ylabel('NaN count (%)')
+    colors = ['blue', 'orange', 'green']
+    cnt = 0
     for sz in ['S','M','L']:
-        plt.bar(np.arange(len(group_by_mode[sz])), group_by_mode[sz])
-    plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
-    plt.savefig('count_nans_per', dpi=100)
-    plt.close()
+        plt.figure()
+        plt.xlabel('Movement index')
+        plt.ylabel('NaN count (%)')
+        plt.bar(np.arange(len(group_by_mode[sz])), group_by_mode[sz], color=colors[cnt])
+        cnt += 1
+        plt.savefig('./plots/start_end_nans_'+sz, dpi=100)
+        plt.close('all')
 
 def count_consecutive_nans(dataset):
     ignored = 0
@@ -255,6 +285,48 @@ def max_consecutive_nans(dataset):
     plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
     plt.savefig('max_consecutive_nans', dpi=100)
     plt.close()
+
+def start_end_apertures_dist(dataset, pos='end'):
+    start_end_apertures = []
+    total_parts = []
+    total_sizes = []
+
+    for key in dataset.keys():
+        # per participant and size
+        participant = key.split('_')[0]
+
+        x1 = dataset[key]['RThumb4FingerTip.x'].iloc[WINDOW:].to_numpy()
+        y1 = dataset[key]['RThumb4FingerTip.y'].iloc[WINDOW:].to_numpy()
+        x2 = dataset[key]['RIndex4FingerTip.x'].iloc[WINDOW:].to_numpy()
+        y2 = dataset[key]['RIndex4FingerTip.y'].iloc[WINDOW:].to_numpy()
+        apertures = np.sqrt(np.power(x1 - x2, 2) + np.power(y1 - y2, 2))
+
+        if pos == 'start': start_end_apertures.append(apertures[0])
+        elif pos == 'end': start_end_apertures.append(apertures[-1])
+        total_parts.append(participant)
+        total_sizes.append(key[OBJ_SIZE_POS])
+    
+    start_end_apertures = np.expand_dims(np.array(start_end_apertures), axis=1)
+    total_parts = np.expand_dims(np.array(total_parts), axis=1)
+    total_sizes = np.expand_dims(np.array(total_sizes), axis=1)
+    npdata = np.concatenate([start_end_apertures, total_parts, total_sizes], axis=1)
+    df = pd.DataFrame(npdata, columns=['a','p','Size'])
+    df['a'] = df['a'].astype(float)
+    
+    for part in df['p'].unique():
+        part_df = df[df['p'] == part]
+        small = part_df[part_df['Size'] == 'S']
+        medium = part_df[part_df['Size'] == 'M']
+        large = part_df[part_df['Size'] == 'L']
+        plt.figure()
+        plt.grid(alpha=0.2)
+        plt.boxplot([small['a'], medium['a'], large['a']])
+        plt.xticks([1,2,3], ['S','M','L'])
+        plt.xlabel('Object size')
+        if pos == 'start': plt.ylabel('Start TI-Aperture dist')
+        elif pos == 'end': plt.ylabel('End TI-Aperture dist')
+        plt.savefig('./plots/'+part, dpi=100)
+        plt.close('all')
 
 def interpolated_boxplot(dataset):
     group_by_mode = {}
