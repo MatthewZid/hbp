@@ -198,6 +198,15 @@ def count_nan_apertures_per(dataset):
         plt.savefig('./plots/count_nans_per_'+sz, dpi=100)
         plt.close('all')
 
+def remove_nan_threshold(dataset):
+    new_dataset = {}
+    for key in dataset.keys():
+        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        perc = nans.shape[0] / len(dataset[key])
+        if perc < 0.6: new_dataset[key] = dataset[key].copy()
+    
+    return new_dataset
+
 def start_end_nan_per(dataset):
     group_by_mode = {}
     group_by_mode['S'] = []
