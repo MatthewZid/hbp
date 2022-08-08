@@ -391,34 +391,26 @@ def plot_start_end_apertures_dist(dataset, pos='end'):
     total_sizes = []
 
     for key in dataset.keys():
-        # per participant and size
         participant = key.split('_')[0]
-
-        x1 = dataset[key]['RThumb4FingerTip.x'].iloc[WINDOW:].to_numpy()
-        y1 = dataset[key]['RThumb4FingerTip.y'].iloc[WINDOW:].to_numpy()
-        x2 = dataset[key]['RIndex4FingerTip.x'].iloc[WINDOW:].to_numpy()
-        y2 = dataset[key]['RIndex4FingerTip.y'].iloc[WINDOW:].to_numpy()
-        apertures = np.sqrt(np.power(x1 - x2, 2) + np.power(y1 - y2, 2))
-
-        if pos == 'start': start_end_apertures.append(apertures[0])
-        elif pos == 'end': start_end_apertures.append(apertures[-1])
+        if pos == 'start': start_end_apertures.append(dataset[key]['apertures'].iloc[0])
+        elif pos == 'end': start_end_apertures.append(dataset[key]['apertures'].iloc[-1])
         total_parts.append(participant)
         total_sizes.append(key[OBJ_SIZE_POS])
     
-    start_end_apertures = np.expand_dims(np.array(start_end_apertures), axis=1)
-    total_parts = np.expand_dims(np.array(total_parts), axis=1)
-    total_sizes = np.expand_dims(np.array(total_sizes), axis=1)
-    npdata = np.concatenate([start_end_apertures, total_parts, total_sizes], axis=1)
-    df = pd.DataFrame(npdata, columns=['a','p','Size'])
-    df['a'] = df['a'].astype(float)
-    
-    for part in df['p'].unique():
-        part_df = df[df['p'] == part]
+    start_end_df = pd.DataFrame({
+        'a': pd.Series(np.array(start_end_apertures), dtype=float),
+        'p': pd.Series(np.array(total_parts), dtype=str),
+        'Size': pd.Series(np.array(total_sizes), dtype=str)
+    })
+
+    start_end_df = start_end_df.dropna()
+
+    for part in start_end_df['p'].unique():
+        part_df = start_end_df[start_end_df['p'] == part]
         small = part_df[part_df['Size'] == 'S']
         medium = part_df[part_df['Size'] == 'M']
         large = part_df[part_df['Size'] == 'L']
         plt.figure()
-        plt.grid(alpha=0.2)
         plt.boxplot([small['a'], medium['a'], large['a']])
         plt.xticks([1,2,3], ['S','M','L'])
         plt.xlabel('Object size')
