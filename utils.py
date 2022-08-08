@@ -10,6 +10,7 @@ import math
 from scipy import signal
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 import seaborn as sn
+from scipy.stats import rv_histogram
 
 OBJ_SIZE_POS = 4
 PROB_THRESHOLD = 0.6
@@ -197,13 +198,102 @@ def count_nan_apertures_per(dataset):
         # plt.legend(['Small', 'Medium', 'Large'], loc='upper right')
         plt.savefig('./plots/count_nans_per_'+sz, dpi=100)
         plt.close('all')
+    
+def start_end_apertures_dist(dataset):
+    start_apertures = []
+    end_apertures = []
+    total_parts = []
+    total_sizes = []
 
-def remove_nan_threshold(dataset):
+    for key in dataset.keys():
+        participant = key.split('_')[0]
+        start_apertures.append(dataset[key]['apertures'].iloc[0])
+        total_parts.append(participant)
+        total_sizes.append(key[OBJ_SIZE_POS])
+        end_apertures.append(dataset[key]['apertures'].iloc[-1])
+    
+    start_df = pd.DataFrame({
+        'a': pd.Series(np.array(start_apertures), dtype=float),
+        'p': pd.Series(np.array(total_parts), dtype=str),
+        'Size': pd.Series(np.array(total_sizes), dtype=str)
+    })
+
+    end_df = pd.DataFrame({
+        'a': pd.Series(np.array(end_apertures), dtype=float),
+        'p': pd.Series(np.array(total_parts), dtype=str),
+        'Size': pd.Series(np.array(total_sizes), dtype=str)
+    })
+
+    start_df = start_df.dropna()
+    end_df = end_df.dropna()
+
+    return start_df.copy(), end_df.copy()
+
+def linear_extrapolation(df, direction='forward'):
+    x = None
+    yk = None
+    yk_1 = None
+    xk = None
+    xk_1 = None
+    y = None
+    notnan = df.dropna()
+    idx_list = df.index.values.tolist()
+    nn_idx_list = notnan.index.values.tolist()
+    if direction == 'forward':
+        x = idx_list[-1]
+        xk = nn_idx_list[-1]
+        xk_1 = nn_idx_list[-2]
+        yk = notnan.iloc[-1]
+        yk_1 = notnan.iloc[-2]
+        y = yk_1 + ((x - xk_1)/(xk - xk_1))*(yk - yk_1)
+    elif direction == 'backward':
+        x = idx_list[0]
+        xk = nn_idx_list[1]
+        xk_1 = nn_idx_list[0]
+        yk = notnan.iloc[1]
+        yk_1 = notnan.iloc[0]
+        y = yk_1 - ((x - xk_1)/(xk - xk_1))*(yk - yk_1)
+    
+    if direction == 'forward': df.at[idx_list[-1]] = y
+    elif direction == 'backward': df.at[idx_list[0]] = y
+
+def sample_replace_start_end(dataset):
+    # keep movements with nan percentage less than 60%
     new_dataset = {}
     for key in dataset.keys():
         nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
         perc = nans.shape[0] / len(dataset[key])
-        if perc < 0.6: new_dataset[key] = dataset[key].copy()
+        if perc < 1.0: new_dataset[key] = dataset[key].copy()
+    
+    # replace start and end nan aperture values
+    start_df, end_df = start_end_apertures_dist(new_dataset)
+    
+    for key in new_dataset.keys():
+        nans = np.where(np.isnan(new_dataset[key]['apertures'].to_numpy()))[0]
+        if nans.shape[0] > 0:
+            participant = key.split('_')[0]
+            if nans[0] == 0:
+                part_df = start_df[start_df['p'] == participant]
+                size_df = part_df[part_df['Size'] == key[OBJ_SIZE_POS]]
+                prob = rv_histogram(np.histogram(size_df['a'].to_numpy(), bins='auto')) # generate distribution given the histogram
+                sample_value = prob.rvs()
+                # sample_value = np.random.choice(size_df['a'].to_numpy(), 1)[0]
+                new_dataset[key].loc[new_dataset[key].index[0]].replace(to_replace=np.nan, value=sample_value, inplace=True)
+                # linear_extrapolation(new_dataset[key]['apertures'], direction='backward')
+            
+            if nans[-1] == (len(new_dataset[key]['apertures'])-1):
+                part_df = end_df[end_df['p'] == participant]
+                size_df = part_df[part_df['Size'] == key[OBJ_SIZE_POS]]
+                sample_value = None
+                if len(size_df) == 0:
+                    size_df = end_df[end_df['Size'] == key[OBJ_SIZE_POS]]
+                    sample_value = size_df['a'].mean()
+                else:
+                    prob = rv_histogram(np.histogram(size_df['a'].to_numpy(), bins='auto')) # generate distribution given the histogram
+                    sample_value = prob.rvs()
+                    # sample_value = np.random.choice(size_df['a'].to_numpy(), 1)[0]
+                new_dataset[key].loc[new_dataset[key].index[-1]].replace(to_replace=np.nan, value=sample_value, inplace=True)
+                # linear_extrapolation(new_dataset[key]['apertures'])
     
     return new_dataset
 
@@ -295,7 +385,7 @@ def max_consecutive_nans(dataset):
     plt.savefig('max_consecutive_nans', dpi=100)
     plt.close()
 
-def start_end_apertures_dist(dataset, pos='end'):
+def plot_start_end_apertures_dist(dataset, pos='end'):
     start_end_apertures = []
     total_parts = []
     total_sizes = []
@@ -494,18 +584,19 @@ def extract_norm_apertures_wrist_mdp(dataset):
         new_feature_size[tp] = []
         data[tp] = []
 
-    new_dataset = {}
+    # new_dataset = {}
 
     for key in dataset.keys():
-        nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
-        if nans.shape[0] > 0:
-            if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
-            dataset[key] = dataset[key].interpolate(method='linear', axis=0)
-        new_dataset[key] = dataset[key].copy()
+        # nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
+        # if nans.shape[0] > 0:
+        #     if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
+        #     dataset[key] = dataset[key].interpolate(method='linear', axis=0)
+        # new_dataset[key] = dataset[key].copy()
+        dataset[key] = dataset[key].interpolate(method='linear', axis=0)
     
     obj_size = {'S': [], 'M': [], 'L': []}
 
-    for key in new_dataset.keys():
+    for key in dataset.keys():
         obj_size[key[OBJ_SIZE_POS]].append(key)
     
     # train_ratio = int((80 * len(new_dataset.keys())) / 100.0)
@@ -529,11 +620,11 @@ def extract_norm_apertures_wrist_mdp(dataset):
     for tp in ['train', 'test']:
         for key in keys[tp]:
             # points = pd.concat([new_dataset[key]['apertures'], new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y']], axis=1).to_numpy()
-            points = pd.concat([new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y'], new_dataset[key]['apertures']], axis=1).to_numpy()
+            points = pd.concat([dataset[key]['wrist_x'], dataset[key]['wrist_y'], dataset[key]['apertures']], axis=1).to_numpy()
             # points = new_dataset[key]['apertures'].to_numpy()
             features[tp]['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0] - 1)]))
-            features[tp]['time'].append(new_dataset[key]['time'].iloc[:-1].to_numpy())
-            features[tp]['norm_time'].append(new_dataset[key]['norm_time'].iloc[:-1].to_numpy())
+            features[tp]['time'].append(dataset[key]['time'].iloc[:-1].to_numpy())
+            features[tp]['norm_time'].append(dataset[key]['norm_time'].iloc[:-1].to_numpy())
             data[tp].append(points)
             feature_size[tp].append(points.shape[0])
     
@@ -651,10 +742,7 @@ def plot_interp_expert(dataset):
 
     for key in dataset.keys():
         nans = np.isnan(dataset[key]['apertures'].to_numpy())
-        nans_pos = np.where(nans)[0]
-        if nans_pos.shape[0] > 0:
-            if nans_pos[-1] == (len(dataset[key]['apertures'])-1) or nans_pos[0] == 0: continue
-            dataset[key] = dataset[key].interpolate(method='linear', axis=0)
+        dataset[key] = dataset[key].interpolate(method='linear', axis=0)
 
         # per participant and size
         participant = key.split('_')[0]
@@ -690,16 +778,27 @@ def plot_interp_expert(dataset):
         plt.figure()
         # sn.relplot(data=part_df, x="t", y="a", hue="Size", kind="line", ci="sd", hue_order=['S','M','L'])
         # sn.scatterplot(data=part_df, x="t", y="a", hue="Size", hue_order=['S','M','L'], alpha=0.6)
-        plt.scatter(false_small['t'].to_numpy(), false_small['a'].to_numpy(), alpha=0.5, label='Small', s=20)
-        plt.scatter(false_medium['t'].to_numpy(), false_medium['a'].to_numpy(), alpha=0.5, label='Medium', color='orange', s=20)
-        plt.scatter(false_large['t'].to_numpy(), false_large['a'].to_numpy(), alpha=0.5, label='Large', color='green', s=20)
-        plt.scatter(true_small['t'].to_numpy(), true_small['a'].to_numpy(), label='Small interp', color='cyan', marker='+', s=50)
-        plt.scatter(true_medium['t'].to_numpy(), true_medium['a'].to_numpy(), label='Medium interp', color='black', marker='+', s=50)
-        plt.scatter(true_large['t'].to_numpy(), true_large['a'].to_numpy(), label='Large interp', color='red', marker='+', s=50)
+        plt.scatter(false_small['t'].to_numpy(), false_small['a'].to_numpy(), alpha=0.5, label='Small', s=40, edgecolors='white')
+        plt.scatter(false_medium['t'].to_numpy(), false_medium['a'].to_numpy(), alpha=0.5, label='Medium', color='darkorange', s=40, edgecolors='white')
+        plt.scatter(false_large['t'].to_numpy(), false_large['a'].to_numpy(), alpha=0.5, label='Large', color='green', s=40, edgecolors='white')
+        plt.scatter(true_small['t'].to_numpy(), true_small['a'].to_numpy(), alpha=0.8, label='Small interp', color='cyan', marker='+', s=50)
+        plt.scatter(true_medium['t'].to_numpy(), true_medium['a'].to_numpy(), alpha=0.8, label='Medium interp', color='black', marker='+', s=50)
+        plt.scatter(true_large['t'].to_numpy(), true_large['a'].to_numpy(), alpha=0.8, label='Large interp', color='red', marker='+', s=50)
         plt.xlabel('R-t-G movement completion (%)')
         plt.ylabel('TI-Aperture')
         plt.legend(loc='upper left', prop={'size': 6})
         plt.savefig('./plots/'+part, dpi=100)
+        plt.close('all')
+
+def plot_individual_mov(dataset):
+    for key in dataset.keys():
+        dataset[key] = dataset[key].interpolate(method='linear', axis=0)
+
+        plt.figure()
+        plt.scatter(np.arange(len(dataset[key])), dataset[key]['apertures'].to_numpy(), alpha=0.5, s=40, edgecolors='white')
+        plt.xlabel('Frame idx')
+        plt.ylabel('TI-Aperture')
+        plt.savefig('./plots/mov/'+key.split('.')[0], dpi=100)
         plt.close('all')
 
 def movement_end(dataset):
