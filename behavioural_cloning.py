@@ -36,6 +36,7 @@ def create_generator(state_dims, action_dims, code_dims):
 # load data
 expert_data = read_expert()
 expert_data = extract_features(expert_data)
+expert_data = sample_replace_start_end(expert_data)
 features, feature_size, expert_data = extract_norm_apertures_wrist_mdp(expert_data)
 
 yaml_conf = {

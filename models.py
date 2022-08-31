@@ -174,7 +174,7 @@ class Discriminator():
         merged = Concatenate(axis=1)([states,actions])
         x = Dense(128, activation='tanh')(merged)
         # x = LeakyReLU()(x)
-        x = Dense(128, activation='tanh')(x)
+        # x = Dense(128, activation='tanh')(x)
         # x = LeakyReLU()(x)
         score = Dense(1)(x)
 
@@ -230,7 +230,7 @@ class Posterior():
         self.code_dims = code_dims
         self.model = self.create_posterior()
         self.target_model = self.create_posterior()
-        self.posterior_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-4)
+        self.posterior_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5)
     
     def create_posterior(self):
         # initializer = tf.keras.initializers.HeNormal()
@@ -240,7 +240,7 @@ class Posterior():
         merged = Concatenate(axis=1)([states,actions])
         x = Dense(128, activation='tanh')(merged)
         # x = LeakyReLU()(x)
-        x = Dense(128, activation='tanh')(x)
+        # x = Dense(128, activation='tanh')(x)
         # x = LeakyReLU()(x)
         x = Dense(self.code_dims)(x)
         output = tf.keras.activations.softmax(x)
@@ -308,7 +308,7 @@ class ValueNet():
         merged = Concatenate(axis=1)([states, codes])
         x = Dense(128, activation='tanh')(merged)
         # x = LeakyReLU()(x)
-        x = Dense(128, activation='tanh')(x)
+        # x = Dense(128, activation='tanh')(x)
         # x = LeakyReLU()(x)
         output = Dense(1)(x)
         # output = tf.keras.activations.sigmoid(output)

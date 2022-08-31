@@ -23,14 +23,14 @@ save_loss = True
 save_models = True
 resume_training = False
 use_ppo = False
-LOGSTD = tf.math.log(0.005)
+LOGSTD = tf.math.log(0.008)
 SPEED = 0.02
 BUFFER_RATIO = 0.67
 TRAIN_BATCH_SIZE = 2000
 
 def read_expert(dataset_name='preprocessed_2D'):
     # data path
-    basepath = '/home/matthew/Documents/AI/thesis/src/hbp/dataset'
+    basepath = '/home/matthew/Documents/AI/thesis/hbp/dataset'
     datapath = os.path.join(basepath, dataset_name)
 
     # init dataset dict
@@ -576,7 +576,8 @@ def extract_norm_apertures_wrist_mdp(dataset):
         new_feature_size[tp] = []
         data[tp] = []
 
-    # new_dataset = {}
+    new_dataset = {}
+    # dataset = sample_replace_start_end(dataset)
 
     for key in dataset.keys():
         # nans = np.where(np.isnan(dataset[key]['apertures'].to_numpy()))[0]
@@ -584,11 +585,12 @@ def extract_norm_apertures_wrist_mdp(dataset):
         #     if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
         #     dataset[key] = dataset[key].interpolate(method='linear', axis=0)
         # new_dataset[key] = dataset[key].copy()
-        dataset[key] = dataset[key].interpolate(method='linear', axis=0)
+        if key[OBJ_SIZE_POS] == 'M': continue
+        new_dataset[key] = dataset[key].interpolate(method='linear', axis=0)
     
     obj_size = {'S': [], 'M': [], 'L': []}
 
-    for key in dataset.keys():
+    for key in new_dataset.keys():
         obj_size[key[OBJ_SIZE_POS]].append(key)
     
     # train_ratio = int((80 * len(new_dataset.keys())) / 100.0)
@@ -611,12 +613,12 @@ def extract_norm_apertures_wrist_mdp(dataset):
     
     for tp in ['train', 'test']:
         for key in keys[tp]:
-            # points = pd.concat([new_dataset[key]['apertures'], new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y']], axis=1).to_numpy()
-            points = pd.concat([dataset[key]['wrist_x'], dataset[key]['wrist_y'], dataset[key]['apertures']], axis=1).to_numpy()
+            points = pd.concat([new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y'], new_dataset[key]['apertures']], axis=1).to_numpy()
+            # points = pd.concat([dataset[key]['wrist_x'], dataset[key]['wrist_y'], dataset[key]['apertures']], axis=1).to_numpy()
             # points = new_dataset[key]['apertures'].to_numpy()
             features[tp]['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0] - 1)]))
-            features[tp]['time'].append(dataset[key]['time'].iloc[:-1].to_numpy())
-            features[tp]['norm_time'].append(dataset[key]['norm_time'].iloc[:-1].to_numpy())
+            features[tp]['time'].append(new_dataset[key]['time'].iloc[:-1].to_numpy())
+            features[tp]['norm_time'].append(new_dataset[key]['norm_time'].iloc[:-1].to_numpy())
             data[tp].append(points)
             feature_size[tp].append(points.shape[0])
     
@@ -669,7 +671,7 @@ def extract_norm_apertures_wrist_mdp(dataset):
         features[tp]['norm_time'] = np.concatenate(features[tp]['norm_time'], axis=0, dtype=np.float64)
         new_feature_size[tp] = np.array(new_feature_size[tp], dtype=int)
 
-    return features, new_feature_size, dataset
+    return features, new_feature_size, new_dataset
 
 def extract_start_pos(features, feat_size):
     start_pos = []
@@ -733,6 +735,7 @@ def plot_interp_expert(dataset):
     interp_flags = []
 
     for key in dataset.keys():
+        if key[OBJ_SIZE_POS] == 'M': continue
         nans = np.isnan(dataset[key]['apertures'].to_numpy())
         dataset[key] = dataset[key].interpolate(method='linear', axis=0)
 

@@ -112,7 +112,7 @@ class InfoGAIL():
         if mode == 'plot': plt.plot(x, y)
         else: plt.scatter(x, y, alpha=0.4)
         plt.savefig('./plots/'+element+'_'+str(episode), dpi=100)
-        plt.close()
+        plt.close('all')
     
     def show_loss(self):
         epoch_space = np.arange(1, len(self.gen_result)+1, dtype=int)
@@ -121,7 +121,7 @@ class InfoGAIL():
         plt.title('Surrogate loss')
         plt.plot(epoch_space, self.gen_result)
         plt.savefig('./plots/trpo_loss', dpi=100)
-        plt.close()
+        plt.close('all')
 
         plt.figure()
         plt.title('Disc/Post losses')
@@ -130,13 +130,13 @@ class InfoGAIL():
         plt.plot(epoch_space, self.post_result_val)
         plt.legend(['disc', 'post train', 'post val'], loc="upper right")
         plt.savefig('./plots/disc_post', dpi=100)
-        plt.close()
+        plt.close('all')
 
         plt.figure()
         plt.title('Value loss')
         plt.plot(epoch_space, self.value_result)
         plt.savefig('./plots/value_loss', dpi=100)
-        plt.close()
+        plt.close('all')
     
     def train(self, agent):
         features = {}
@@ -453,16 +453,14 @@ class InfoGAIL():
             feature_size = np.array(data['test_feat_size'], dtype=int)
         
         # InfoGAIL accuracy method
-        sampled_expert_idx = np.random.choice(training_features['states'].shape[0], 1000, replace=False)
-        sampled_expert_states = training_features['states'][sampled_expert_idx, :]
-        sampled_expert_actions = training_features['actions'][sampled_expert_idx, :]
-        sampled_expert_codes = np.argmax(training_features['codes'][sampled_expert_idx, :], axis=1)
-        probs = models.posterior.target_model([sampled_expert_states, sampled_expert_actions], training=False).numpy()
+        training_expert_codes = np.argmax(training_features['codes'], axis=1)
+        probs = models.posterior.target_model([training_features['states'], training_features['actions']], training=False).numpy()
         codes_pred = np.argmax(probs, axis=1)
 
         print('Posterior accuracy over expert state-action pairs')
-        print(classification_report(sampled_expert_codes, codes_pred))
+        print(classification_report(training_expert_codes, codes_pred))
         print('\n')
+        return
 
         ######################################################################################################
 
@@ -698,7 +696,7 @@ class InfoGAIL():
                 hm.set_xticklabels(['Small', 'Medium', 'Large'])
                 hm.set_yticklabels(['Small', 'Medium', 'Large'])
                 plt.savefig('./plots/cf_matrix_'+str(int(ci)), dpi=100)
-                plt.close()
+                plt.close('all')
 
                 print('{:d}%'.format(int(ci)))
                 print(classification_report(part_total_codes_true[count], part_total_codes_pred[count], zero_division=1))
@@ -714,7 +712,7 @@ class InfoGAIL():
                     plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][2])), part_prob_percs_per_object[count][obj_size[sz]][2], alpha=0.6)
                     plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
                     plt.savefig('./plots/conf_percs_'+sz+'_'+str(int(ci)), dpi=100)
-                    plt.close()
+                    plt.close('all')
 
                 count += 1
             
@@ -764,7 +762,7 @@ class InfoGAIL():
             hm.set_xticklabels(['Small', 'Medium', 'Large'])
             hm.set_yticklabels(['Small', 'Medium', 'Large'])
             plt.savefig('./plots/franken_cf_matrix', dpi=100)
-            plt.close()
+            plt.close('all')
 
             for sz in ['Small', 'Medium', 'Large']:
                 plt.figure()
@@ -776,7 +774,7 @@ class InfoGAIL():
                 plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][2])), franken_prob_perc_per_object[obj_size[sz]][2], alpha=0.6)
                 plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
                 plt.savefig('./plots/franken_conf_percs_'+sz, dpi=100)
-                plt.close()
+                plt.close('all')
 
             # multiple random starting points
             # p = 0
@@ -834,7 +832,7 @@ class InfoGAIL():
             plt.plot(np.arange(len(total_eval_post)), total_eval_post)
             plt.legend(['disc expert ce', 'disc gen ce', 'post cross ent'], loc='upper left')
             plt.savefig('./plots/test_net_losses', dpi=100)
-            plt.close()
+            plt.close('all')
 
 models = Models(state_dims=3, action_dims=3, code_dims=3)
 # models = Models(state_dims=1, action_dims=1, code_dims=3)
