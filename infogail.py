@@ -57,7 +57,7 @@ class Agent():
     def run(self, code, start, feat_size):
         try:
             trajectory_dict = {}
-            trajectory = self.__generate_trajectory(code, start, feat_size)
+            trajectory = self.__generate_trajectory(code, start[-3:], feat_size)
             trajectory_dict['states'] = np.copy(trajectory[0])
             trajectory_dict['actions'] = np.copy(trajectory[1])
             trajectory_dict['codes'] = np.copy(trajectory[2])
@@ -74,15 +74,15 @@ class Agent():
             }
 
             latent_codes = []
-            for i in range(3):
-                c = np.zeros((3,))
+            for i in range(2):
+                c = np.zeros((2,))
                 c[i] = 1
                 latent_codes.append(np.copy(c))
             latent_codes = np.array(latent_codes)
 
             for lc in latent_codes:
                 trajectory_dict = {}
-                trajectory = self.__generate_trajectory(lc, start, feat_size)
+                trajectory = self.__generate_trajectory(lc, start[-3:], feat_size)
                 trajectory_dict['states'] = np.copy(trajectory[0])
                 trajectory_dict['actions'] = np.copy(trajectory[1])
                 trajectory_dict['codes'] = np.copy(trajectory[2])
@@ -102,7 +102,9 @@ class InfoGAIL():
         self.starting_episode = 0
         self.gen_result = []
         self.disc_result = []
+        self.disc_std = []
         self.post_result = []
+        self.post_std = []
         self.post_result_val = []
         self.value_result = []
         self.total_rewards = []
@@ -116,6 +118,10 @@ class InfoGAIL():
     
     def show_loss(self):
         epoch_space = np.arange(1, len(self.gen_result)+1, dtype=int)
+        disc_result = np.array(self.disc_result, dtype=np.float32)
+        disc_std = np.array(self.disc_std, dtype=np.float32)
+        post_result = np.array(self.post_result, dtype=np.float32)
+        post_std = np.array(self.post_std, dtype=np.float32)
         plt.figure()
         # plt.ylim(-100, 100)
         plt.title('Surrogate loss')
@@ -125,10 +131,12 @@ class InfoGAIL():
 
         plt.figure()
         plt.title('Disc/Post losses')
-        plt.plot(epoch_space, self.disc_result)
-        plt.plot(epoch_space, self.post_result)
-        plt.plot(epoch_space, self.post_result_val)
-        plt.legend(['disc', 'post train', 'post val'], loc="upper right")
+        plt.plot(epoch_space, self.disc_result, label='disc')
+        plt.fill_between(epoch_space, disc_result-disc_std, disc_result+disc_std, alpha=0.2)
+        plt.plot(epoch_space, self.post_result, label='post train')
+        plt.fill_between(epoch_space, post_result-post_std, post_result+post_std, alpha=0.2)
+        plt.plot(epoch_space, self.post_result_val, label='post val')
+        plt.legend(loc="upper right")
         plt.savefig('./plots/disc_post', dpi=100)
         plt.close('all')
 
@@ -281,8 +289,10 @@ class InfoGAIL():
             dataset = tf.data.Dataset.from_tensor_slices((shuffled_generated_states, shuffled_generated_actions, shuffled_expert_states, shuffled_expert_actions))
             dataset = dataset.batch(batch_size=self.batch)
 
-            loss = models.discriminator.train(dataset)
-            if save_loss: self.disc_result.append(loss)
+            loss, loss_std = models.discriminator.train(dataset)
+            if save_loss:
+                self.disc_result.append(loss)
+                self.disc_std.append(loss_std)
 
             # train posterior
             # if features['states'].shape[0] < generated_states.shape[0]:
@@ -308,10 +318,11 @@ class InfoGAIL():
             val_dataset = tf.data.Dataset.from_tensor_slices((val_generated_states, val_generated_actions, val_generated_codes))
             val_dataset = val_dataset.batch(batch_size=self.batch)
 
-            train_loss = models.posterior.train(train_dataset)
-            val_loss = models.posterior.train(val_dataset)
+            train_loss, train_loss_std = models.posterior.train(train_dataset)
+            val_loss = models.posterior.validate(val_dataset)
             if save_loss:
                 self.post_result.append(train_loss)
+                self.post_std.append(train_loss_std)
                 self.post_result_val.append(val_loss)
 
             # TRPO/PPO
@@ -393,7 +404,10 @@ class InfoGAIL():
                     'disc_loss': self.disc_result,
                     'post_loss': self.post_result,
                     'post_loss_val': self.post_result_val,
-                    'value_loss': self.value_result
+                    'value_loss': self.value_result,
+                    'total_rewards': self.total_rewards,
+                    'disc_std': self.disc_std,
+                    'post_std': self.post_std
                 }
                 
                 with open("./saved_models/trpo/model.yml", 'w') as f:
@@ -427,7 +441,7 @@ class InfoGAIL():
         features = {}
         feature_size = None
 
-        plot_comp = False
+        plot_comp = True
         plot_basic_stats = False
         plot_gen_traj = True
 
@@ -460,7 +474,6 @@ class InfoGAIL():
         print('Posterior accuracy over expert state-action pairs')
         print(classification_report(training_expert_codes, codes_pred))
         print('\n')
-        return
 
         ######################################################################################################
 
@@ -476,12 +489,11 @@ class InfoGAIL():
 
         obj_trajectories = {
             '0': [],
-            '1': [],
-            '2': []
+            '1': []
         }
 
-        obj_size = {'Small': 0, 'Medium': 1, 'Large': 2}
-        obj_size_inv = {'0': 'Small', '1': 'Medium', '2': 'Large'}
+        obj_size = {'Small': 0, 'Large': 1}
+        obj_size_inv = {'0': 'Small', '1': 'Large'}
 
         for i in range(len(intervals)):
             part_prob_percs_per_object.append([])
@@ -495,7 +507,6 @@ class InfoGAIL():
         total_best = []
 
         # partial movements
-        print('Starting from completion percentage (e.g. 40%) until movement completion:')
         count = 0
         for ci in intervals:
             # get starting positions
@@ -613,7 +624,7 @@ class InfoGAIL():
                 part_prob_pred = np.argmax(part_prob_mean)
                 part_prob_percs_per_object[count][code_true][0].append(part_prob_mean[0])
                 part_prob_percs_per_object[count][code_true][1].append(part_prob_mean[1])
-                part_prob_percs_per_object[count][code_true][2].append(part_prob_mean[2])
+                # part_prob_percs_per_object[count][code_true][2].append(part_prob_mean[2])
                 part_total_codes_true[count].append(code_true)
                 part_total_codes_pred[count].append(part_prob_pred)
 
@@ -624,10 +635,11 @@ class InfoGAIL():
                 expert_i += 1
             
             count += 1
+
+        total_best = np.concatenate(total_best, axis=0)
         
         if plot_gen_traj:
             # plot generated trajectories
-            total_best = np.concatenate(total_best, axis=0)
             bestdf = pd.DataFrame({
                 'x': pd.Series(total_best[:, 0], dtype=float),
                 'y': pd.Series(total_best[:, 1], dtype=float),
@@ -637,23 +649,23 @@ class InfoGAIL():
             })
 
             small = bestdf[bestdf['c'] == 0]
-            medium = bestdf[bestdf['c'] == 1]
-            large = bestdf[bestdf['c'] == 2]
+            # medium = bestdf[bestdf['c'] == 1]
+            large = bestdf[bestdf['c'] == 1]
 
             plt.figure()
-            plt.scatter(small['t'].to_numpy(), small['y'].to_numpy(), alpha=0.6, label='Small', s=40, edgecolors='white')
-            plt.scatter(medium['t'].to_numpy(), medium['y'].to_numpy(), alpha=0.6, label='Medium', s=40, edgecolors='white')
-            plt.scatter(large['t'].to_numpy(), large['y'].to_numpy(), alpha=0.6, label='Large', s=40, edgecolors='white')
+            plt.scatter(small['t'].to_numpy(), small['a'].to_numpy(), alpha=0.6, label='Small', s=40, edgecolors='white')
+            # plt.scatter(medium['t'].to_numpy(), medium['a'].to_numpy(), alpha=0.6, label='Medium', s=40, edgecolors='white')
+            plt.scatter(large['t'].to_numpy(), large['a'].to_numpy(), alpha=0.6, label='Large', s=40, edgecolors='white')
             plt.xlabel('R-t-G movement completion (%)')
-            plt.ylabel('y-wrist')
+            plt.ylabel('Aperture')
             plt.legend(loc='upper left', prop={'size': 9})
-            plt.savefig('./plots/generated_ywrist', dpi=100)
+            plt.savefig('./plots/generated_apertures', dpi=100)
             plt.close('all')
         
         if plot_comp:
             # plot generated and expert trajectories
-            total_best = np.concatenate(total_best, axis=0)
-
+            min_ylim = features['states'][:, 2].min() - 0.5
+            max_ylim = features['states'][:, 2].max() + 0.5
             expertdf = pd.DataFrame({
                 'x': pd.Series(features['states'][:, 0], dtype=float),
                 'y': pd.Series(features['states'][:, 1], dtype=float),
@@ -672,16 +684,18 @@ class InfoGAIL():
                 expsize_df = expertdf[expertdf['c'] == i]
                 bestsize_df = bestdf.loc[list(expsize_df.index)]
                 plt.figure()
-                plt.scatter(expsize_df['t'].to_numpy(), expsize_df['y'].to_numpy(), alpha=0.6, label='Expert', s=40, edgecolors='white')
-                plt.scatter(expsize_df['t'].to_numpy(), bestsize_df['y'].to_numpy(), alpha=0.6, label='Generated', s=40, edgecolors='white')
+                plt.scatter(expsize_df['t'].to_numpy(), expsize_df['a'].to_numpy(), alpha=0.6, label='Expert', s=40, edgecolors='white')
+                plt.scatter(expsize_df['t'].to_numpy(), bestsize_df['a'].to_numpy(), alpha=0.6, label='Generated', s=40, edgecolors='white')
                 plt.xlabel('R-t-G movement completion (%)')
-                plt.ylabel('y-wrist')
+                plt.ylabel('Aperture')
+                plt.ylim(min_ylim, max_ylim)
                 plt.legend(loc='upper left', prop={'size': 9})
                 plt.savefig('./plots/'+obj_size_inv[str(i)], dpi=100)
                 plt.close('all')
 
         if plot_basic_stats:
             # plot partial trajectory results
+            print('Starting from completion percentage (e.g. 40%) until movement completion:')
             count = 0
             for ci in intervals:
                 cm = confusion_matrix(part_total_codes_true[count], part_total_codes_pred[count])
@@ -693,8 +707,10 @@ class InfoGAIL():
                 hm.set_title('Mode confusion matrix: '+str(int(ci))+'% completion')
                 hm.set_xlabel('Predicted modes')
                 hm.set_ylabel('Actual modes')
-                hm.set_xticklabels(['Small', 'Medium', 'Large'])
-                hm.set_yticklabels(['Small', 'Medium', 'Large'])
+                # hm.set_xticklabels(['Small', 'Medium', 'Large'])
+                # hm.set_yticklabels(['Small', 'Medium', 'Large'])
+                hm.set_xticklabels(['Small', 'Large'])
+                hm.set_yticklabels(['Small', 'Large'])
                 plt.savefig('./plots/cf_matrix_'+str(int(ci)), dpi=100)
                 plt.close('all')
 
@@ -702,15 +718,15 @@ class InfoGAIL():
                 print(classification_report(part_total_codes_true[count], part_total_codes_pred[count], zero_division=1))
                 print('-----------------------------------------------')
 
-                for sz in ['Small', 'Medium', 'Large']:
+                for sz in ['Small', 'Large']:
                     plt.figure()
                     plt.title(sz+': '+str(int(ci))+'% completion')
                     plt.xlabel('Trajectory No.')
                     plt.ylabel('Probability (%)')
                     plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][0])), part_prob_percs_per_object[count][obj_size[sz]][0], alpha=0.6)
                     plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][1])), part_prob_percs_per_object[count][obj_size[sz]][1], alpha=0.6)
-                    plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][2])), part_prob_percs_per_object[count][obj_size[sz]][2], alpha=0.6)
-                    plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
+                    # plt.scatter(np.arange(len(part_prob_percs_per_object[count][obj_size[sz]][2])), part_prob_percs_per_object[count][obj_size[sz]][2], alpha=0.6)
+                    plt.legend(['Small', 'Large'], loc='lower right')
                     plt.savefig('./plots/conf_percs_'+sz+'_'+str(int(ci)), dpi=100)
                     plt.close('all')
 
@@ -746,7 +762,7 @@ class InfoGAIL():
                 franken_prob_pred = np.argmax(franken_prob_mean)
                 franken_prob_perc_per_object[franken_true_code][0].append(franken_prob_mean[0])
                 franken_prob_perc_per_object[franken_true_code][1].append(franken_prob_mean[1])
-                franken_prob_perc_per_object[franken_true_code][2].append(franken_prob_mean[2])
+                # franken_prob_perc_per_object[franken_true_code][2].append(franken_prob_mean[2])
                 franken_codes_true.append(franken_true_code)
                 franken_codes_pred.append(franken_prob_pred)
             
@@ -759,20 +775,20 @@ class InfoGAIL():
             hm.set_title('Mixed Mode confusion matrix')
             hm.set_xlabel('Predicted modes')
             hm.set_ylabel('Actual modes')
-            hm.set_xticklabels(['Small', 'Medium', 'Large'])
-            hm.set_yticklabels(['Small', 'Medium', 'Large'])
+            hm.set_xticklabels(['Small', 'Large'])
+            hm.set_yticklabels(['Small', 'Large'])
             plt.savefig('./plots/franken_cf_matrix', dpi=100)
             plt.close('all')
 
-            for sz in ['Small', 'Medium', 'Large']:
+            for sz in ['Small', 'Large']:
                 plt.figure()
                 plt.title('Mixed probabilities: '+sz)
                 plt.xlabel('Trajectory No.')
                 plt.ylabel('Probability (%)')
                 plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][0])), franken_prob_perc_per_object[obj_size[sz]][0], alpha=0.6)
                 plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][1])), franken_prob_perc_per_object[obj_size[sz]][1], alpha=0.6)
-                plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][2])), franken_prob_perc_per_object[obj_size[sz]][2], alpha=0.6)
-                plt.legend(['Small', 'Medium', 'Large'], loc='lower right')
+                # plt.scatter(np.arange(len(franken_prob_perc_per_object[obj_size[sz]][2])), franken_prob_perc_per_object[obj_size[sz]][2], alpha=0.6)
+                plt.legend(['Small', 'Large'], loc='lower right')
                 plt.savefig('./plots/franken_conf_percs_'+sz, dpi=100)
                 plt.close('all')
 
@@ -834,7 +850,7 @@ class InfoGAIL():
             plt.savefig('./plots/test_net_losses', dpi=100)
             plt.close('all')
 
-models = Models(state_dims=3, action_dims=3, code_dims=3)
+models = Models(state_dims=15, action_dims=3, code_dims=2)
 # models = Models(state_dims=1, action_dims=1, code_dims=3)
 
 # main

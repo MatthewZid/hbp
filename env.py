@@ -28,9 +28,9 @@ class Env():
 		for i in range(self.p.shape[0]): self.p[i] += action[i] + self.sigma2*np.random.randn()
 		self.n_step += 1
 
-		# for i in range(4):
-		# 	self.state[i, :] = self.state[i+1, :]
-		# self.state[4] = np.copy(self.p)
+		for i in range(4):
+			self.state[i, :] = self.state[i+1, :]
+		self.state[4] = np.copy(self.p)
 
 		reward = 0.0
 
@@ -40,22 +40,22 @@ class Env():
 		else:
 			done = False
 
-		# return np.copy(self.state.flatten()), done
-		return np.copy(self.p), done
+		return np.copy(self.state.flatten()), done
+		# return np.copy(self.p), done
 
 
 	#-------------------------
 	# Reset
 	#-------------------------
 	def reset(self, start=(0.0,0.0,0.0), feat_size=MAX_FRAMES):
-		# self.state = np.zeros((len(start),), dtype=np.float64)
+		self.state = np.zeros((5,len(start)), dtype=np.float64)
 		self.p = np.zeros((len(start),), dtype=np.float64)
 		for i in range(len(start)): self.p[i] = start[i]
 		self.n_step = 1
 
-		# for i in range(5):
-		# 	for j in range(len(start)):
-		# 		self.state[i,j] = self.p[j]
+		for i in range(5):
+			for j in range(len(start)):
+				self.state[i,j] = self.p[j]
 		
 		# set trajectory stop criteria (y-wrist)
 		# if code[0] == 1: self.stop_crit = 0.982 # small
@@ -63,5 +63,5 @@ class Env():
 		# elif code[2] == 1: self.stop_crit = 0.9815 # large
 		self.stop_frame = feat_size
 
-		# return np.copy(self.state.flatten())
-		return np.copy(self.p)
+		return np.copy(self.state.flatten())
+		# return np.copy(self.p)

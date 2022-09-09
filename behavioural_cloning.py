@@ -82,9 +82,11 @@ def train(train_states, train_actions, train_codes, val_states, val_actions, val
     total_train_size = sum([el[0].shape[0] for el in list(train_data.as_numpy_iterator())])
     total_val_size = sum([el[0].shape[0] for el in list(val_data.as_numpy_iterator())])
     result_train = []
+    result_train_std = []
     result_val = []
     for epoch in trange(epochs, desc='Epoch'):
         loss = 0.0
+        pure_train_losses = []
         for _, (states_batch, actions_batch, codes_batch) in enumerate(train_data):
             with tf.GradientTape() as gen_tape:
                 actions_mu = generator([states_batch, codes_batch], training=True)
@@ -94,8 +96,11 @@ def train(train_states, train_actions, train_codes, val_states, val_actions, val
             gen_optimizer.apply_gradients(zip(policy_gradients, generator.trainable_weights))
 
             loss += tf.get_static_value(gen_loss) * states_batch.shape[0]
+            pure_train_losses.append(tf.get_static_value(gen_loss))
         
         epoch_loss = loss / total_train_size
+        pure_train_losses = np.array(pure_train_losses, dtype=np.float32)
+        result_train_std.append(pure_train_losses.std())
         result_train.append(epoch_loss)
 
         loss = 0.0
@@ -107,13 +112,14 @@ def train(train_states, train_actions, train_codes, val_states, val_actions, val
         epoch_loss = loss / total_val_size
         result_val.append(epoch_loss)
     
-    return generator, result_train, result_val
+    return generator, result_train, result_val, np.array(result_train_std, dtype=np.float32)
 
 def train_kfold():
     # initialize k-fold cross validation
     kf = KFold(n_splits=K, shuffle=False, random_state=None)
     avg_train_loss = np.zeros((EPOCHS,), dtype=np.float32)
     avg_val_loss = np.zeros((EPOCHS,), dtype=np.float32)
+    avg_train_std = np.zeros((EPOCHS,), dtype=np.float32)
     best_avg_loss = np.inf
     best_gen = None
     mse = tf.keras.losses.MeanSquaredError()
@@ -123,9 +129,10 @@ def train_kfold():
         actions_train, actions_test = features['train']['actions'][train_index], features['train']['actions'][test_index]
         codes_train, codes_test = features['train']['codes'][train_index], features['train']['codes'][test_index]
 
-        generator, result_train, result_val = train(states_train, actions_train, codes_train, states_test, actions_test, codes_test)
+        generator, result_train, result_val, result_train_std = train(states_train, actions_train, codes_train, states_test, actions_test, codes_test)
         avg_train_loss += np.array(result_train) / float(K)
         avg_val_loss += np.array(result_val) / float(K)
+        avg_train_std += np.array(result_train_std) / float(K)
 
         if (sum(result_val)/float(len(result_val))) < best_avg_loss:
             best_avg_loss = sum(result_val)/float(len(result_val))
@@ -134,7 +141,7 @@ def train_kfold():
     test_actions_mu = best_gen([features['test']['states'], features['test']['codes']], training=False)
     test_gen_loss = mse(features['test']['actions'], test_actions_mu)
 
-    return best_gen, avg_train_loss, avg_val_loss, test_gen_loss
+    return best_gen, avg_train_loss, avg_val_loss, avg_train_std, test_gen_loss
 
 def simple_train():
     return train(features['train']['states'], features['train']['actions'], features['train']['codes'], features['test']['states'], features['test']['actions'], features['test']['codes'])
@@ -143,20 +150,22 @@ generator = None
 result_test = None
 result_train = None
 result_val = None
+result_train_std = None
 
 test_flag = True
 if test_flag:
-    generator, result_train, result_val, result_test = train_kfold()
+    generator, result_train, result_val, result_train_std, result_test = train_kfold()
     print('\nTest loss: {:f}'.format(result_test))
-else: generator, result_train, result_val = simple_train()
+else: generator, result_train, result_val, result_train_std = simple_train()
 
 if show_fig:
     epoch_space = np.arange(1, len(result_train)+1, dtype=int)
     plt.figure()
     plt.title('Behaviour Cloning')
-    plt.plot(epoch_space, result_train)
-    plt.plot(epoch_space, result_val)
-    plt.legend(['train loss', 'validation loss'], loc="upper right")
+    plt.plot(epoch_space, result_train, label='train loss')
+    plt.fill_between(epoch_space, result_train-result_train_std, result_train+result_train_std, alpha=0.2)
+    plt.plot(epoch_space, result_val, label='validation loss')
+    plt.legend(loc="upper right")
     plt.savefig('./plots/behaviour_cloning', dpi=100)
     plt.close()
 

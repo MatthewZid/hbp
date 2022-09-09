@@ -557,7 +557,7 @@ def interpolated_boxplot(dataset):
 #     return features, new_feature_size, dataset, 3
 
 def extract_norm_apertures_wrist_mdp(dataset):
-    one_hot = {'S': [1,0,0], 'M': [0,1,0], 'L': [0,0,1]}
+    one_hot = {'S': [1,0], 'L': [0,1]}
     features = {}
     features['train'] = {}
     features['test'] = {}
@@ -588,7 +588,7 @@ def extract_norm_apertures_wrist_mdp(dataset):
         if key[OBJ_SIZE_POS] == 'M': continue
         new_dataset[key] = dataset[key].interpolate(method='linear', axis=0)
     
-    obj_size = {'S': [], 'M': [], 'L': []}
+    obj_size = {'S': [], 'L': []}
 
     for key in new_dataset.keys():
         obj_size[key[OBJ_SIZE_POS]].append(key)
@@ -645,21 +645,21 @@ def extract_norm_apertures_wrist_mdp(dataset):
     for tp in ['train', 'test']:
         pos = 0
         for sz in feature_size[tp]:
-            # window = np.zeros((5,data[tp].shape[1]), dtype=np.float64)
-            # for i in range(5):
-            #     window[i,0] = data[tp][pos,0]
-            #     window[i,1] = data[tp][pos,1]
-            #     window[i,2] = data[tp][pos,2]
-            # states = [np.copy(window.flatten())]
+            window = np.zeros((5,data[tp].shape[1]), dtype=np.float64)
+            for i in range(5):
+                window[i,0] = data[tp][pos,0]
+                window[i,1] = data[tp][pos,1]
+                window[i,2] = data[tp][pos,2]
+            states = [np.copy(window.flatten())]
             features[tp]['actions'].append(data[tp][pos+1:pos+sz, :] - data[tp][pos:pos+sz-1, :])
 
-            # for i in range(pos+1, pos+sz-1):
-            #     for j in range(4): window[j,:] = window[j+1,:]
-            #     window[4,:] = data[tp][i,:]
-            #     states.append(np.copy(window.flatten()))
-            states = np.copy(data[tp][pos:pos+sz-1])
+            for i in range(pos+1, pos+sz-1):
+                for j in range(4): window[j,:] = window[j+1,:]
+                window[4,:] = data[tp][i,:]
+                states.append(np.copy(window.flatten()))
+            # states = np.copy(data[tp][pos:pos+sz-1])
             
-            # states = np.array(states, dtype=np.float64)
+            states = np.array(states, dtype=np.float64)
             new_feature_size[tp].append(states.shape[0])
             features[tp]['states'].append(states)
             pos += sz
