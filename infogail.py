@@ -36,8 +36,8 @@ class Agent():
             # 1. generate actions with generator
             state_tf = tf.constant(state_obsrv)
             state_tf = tf.expand_dims(state_tf, axis=0)
-            action_mu = models.generator.model([state_tf, code_tf], training=False)#.numpy()[0] # when action_dims > 1, don't use .numpy()[0]
-            action_mu = tf.squeeze(action_mu).numpy()
+            action_mu = models.generator.model([state_tf, code_tf], training=False).numpy()[0] # when action_dims > 1, don't use .numpy()[0]
+            # action_mu = tf.squeeze(action_mu).numpy()
 
             s_traj.append(state_obsrv)
             a_traj.append(action_mu)
@@ -57,7 +57,7 @@ class Agent():
     def run(self, code, start, feat_size):
         try:
             trajectory_dict = {}
-            trajectory = self.__generate_trajectory(code, start[-3:], feat_size)
+            trajectory = self.__generate_trajectory(code, start[-1:], feat_size)
             trajectory_dict['states'] = np.copy(trajectory[0])
             trajectory_dict['actions'] = np.copy(trajectory[1])
             trajectory_dict['codes'] = np.copy(trajectory[2])
@@ -82,7 +82,7 @@ class Agent():
 
             for lc in latent_codes:
                 trajectory_dict = {}
-                trajectory = self.__generate_trajectory(lc, start[-3:], feat_size)
+                trajectory = self.__generate_trajectory(lc, start[-1:], feat_size)
                 trajectory_dict['states'] = np.copy(trajectory[0])
                 trajectory_dict['actions'] = np.copy(trajectory[1])
                 trajectory_dict['codes'] = np.copy(trajectory[2])
@@ -442,7 +442,7 @@ class InfoGAIL():
         feature_size = None
 
         plot_comp = True
-        plot_basic_stats = False
+        plot_basic_stats = True
         plot_gen_traj = True
 
         models.generator.model.load_weights('./saved_models/trpo/generator.h5')
@@ -614,7 +614,7 @@ class InfoGAIL():
                 if count == 0: total_best.append(best_traj['states'])
                 
                 # percentages for the partial trajectory
-                part_prob = models.posterior.model([best_traj['states'], best_traj['actions']], training=False)
+                part_prob = models.posterior.target_model([best_traj['states'], best_traj['actions']], training=False)
                 if count == 0:
                     cross_entropy = tf.keras.losses.CategoricalCrossentropy()
                     loss = cross_entropy(best_traj['codes'], part_prob)
@@ -757,7 +757,7 @@ class InfoGAIL():
                 franken_traj['actions'] = np.concatenate([random_upper_half[1], random_lower_half[1]], axis=0)
                 franken_true_code = random_code_idx[1]
 
-                franken_prob = models.posterior.model([franken_traj['states'], franken_traj['actions']], training=False)
+                franken_prob = models.posterior.target_model([franken_traj['states'], franken_traj['actions']], training=False)
                 franken_prob_mean = tf.reduce_mean(franken_prob, axis=0).numpy()
                 franken_prob_pred = np.argmax(franken_prob_mean)
                 franken_prob_perc_per_object[franken_true_code][0].append(franken_prob_mean[0])
@@ -775,6 +775,8 @@ class InfoGAIL():
             hm.set_title('Mixed Mode confusion matrix')
             hm.set_xlabel('Predicted modes')
             hm.set_ylabel('Actual modes')
+            # hm.set_xticklabels(['Small', 'Medium', 'Large'])
+            # hm.set_yticklabels(['Small', 'Medium', 'Large'])
             hm.set_xticklabels(['Small', 'Large'])
             hm.set_yticklabels(['Small', 'Large'])
             plt.savefig('./plots/franken_cf_matrix', dpi=100)
@@ -850,7 +852,7 @@ class InfoGAIL():
             plt.savefig('./plots/test_net_losses', dpi=100)
             plt.close('all')
 
-models = Models(state_dims=15, action_dims=3, code_dims=2)
+models = Models(state_dims=5, action_dims=1, code_dims=2)
 # models = Models(state_dims=1, action_dims=1, code_dims=3)
 
 # main

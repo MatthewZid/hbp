@@ -613,7 +613,8 @@ def extract_norm_apertures_wrist_mdp(dataset):
     
     for tp in ['train', 'test']:
         for key in keys[tp]:
-            points = pd.concat([new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y'], new_dataset[key]['apertures']], axis=1).to_numpy()
+            # points = pd.concat([new_dataset[key]['wrist_x'], new_dataset[key]['wrist_y'], new_dataset[key]['apertures']], axis=1).to_numpy()
+            points = new_dataset[key]['apertures'].to_numpy()
             # points = pd.concat([dataset[key]['wrist_x'], dataset[key]['wrist_y'], dataset[key]['apertures']], axis=1).to_numpy()
             # points = new_dataset[key]['apertures'].to_numpy()
             features[tp]['codes'].append(np.array([one_hot[key[OBJ_SIZE_POS]] for _ in range(points.shape[0] - 1)]))
@@ -622,8 +623,8 @@ def extract_norm_apertures_wrist_mdp(dataset):
             data[tp].append(points)
             feature_size[tp].append(points.shape[0])
     
-        data[tp] = np.concatenate(data[tp], axis=0)
-        # data[tp] = np.expand_dims(np.concatenate(data[tp], axis=0), axis=1)
+        # data[tp] = np.concatenate(data[tp], axis=0)
+        data[tp] = np.expand_dims(np.concatenate(data[tp], axis=0), axis=1)
         feature_size[tp] = np.array(feature_size[tp], dtype=int)
 
     # state_scaler = MinMaxScaler(feature_range=(-1,1))
@@ -635,12 +636,14 @@ def extract_norm_apertures_wrist_mdp(dataset):
     test_apertures = data['test'][:, -1].reshape((-1, 1)) - data['test'][:, -1].reshape((-1, 1)).min()
     # train_apertures = data['train'][:, 0].reshape((-1, 1)) - data['train'][:, 0].reshape((-1, 1)).min()
     # test_apertures = data['test'][:, 0].reshape((-1, 1)) - data['test'][:, 0].reshape((-1, 1)).min()
-    train_wrist = wrist_scaler.fit_transform(data['train'][:, :-1])
-    test_wrist = wrist_scaler.transform(data['test'][:, :-1])
-    data['train'] = np.concatenate([train_wrist, train_apertures], axis=1)
-    data['test'] = np.concatenate([test_wrist, test_apertures], axis=1)
+    # train_wrist = wrist_scaler.fit_transform(data['train'][:, :-1])
+    # test_wrist = wrist_scaler.transform(data['test'][:, :-1])
+    # data['train'] = np.concatenate([train_wrist, train_apertures], axis=1)
+    # data['test'] = np.concatenate([test_wrist, test_apertures], axis=1)
     # data['train'] = np.expand_dims(train_apertures, axis=1)
     # data['test'] = np.expand_dims(test_apertures, axis=1)
+    data['train'] = train_apertures
+    data['test'] = test_apertures
 
     for tp in ['train', 'test']:
         pos = 0
@@ -648,8 +651,8 @@ def extract_norm_apertures_wrist_mdp(dataset):
             window = np.zeros((5,data[tp].shape[1]), dtype=np.float64)
             for i in range(5):
                 window[i,0] = data[tp][pos,0]
-                window[i,1] = data[tp][pos,1]
-                window[i,2] = data[tp][pos,2]
+                # window[i,1] = data[tp][pos,1]
+                # window[i,2] = data[tp][pos,2]
             states = [np.copy(window.flatten())]
             features[tp]['actions'].append(data[tp][pos+1:pos+sz, :] - data[tp][pos:pos+sz-1, :])
 
@@ -843,12 +846,12 @@ def norm_movement_ends(features, feat_size):
 
     for sz in feat_size:
         key = str(np.where(features['codes'][pos] == 1)[0][0])
-        final_pos[size_map[key]][0].append(features['states'][pos+sz-1, 0] + features['actions'][pos+sz-1, 0]) # aperture
-        final_pos[size_map[key]][1].append(features['states'][pos+sz-1, -1] + features['actions'][pos+sz-1, -1]) # y-wrist
+        final_pos[size_map[key]][0].append(features['states'][pos+sz-1, -1] + features['actions'][pos+sz-1, -1]) # aperture
+        final_pos[size_map[key]][1].append(features['states'][pos+sz-1, 1] + features['actions'][pos+sz-1, 1]) # y-wrist
         pos += sz
     
     plt.figure()
-    plt.title('Normalized aperture endpoint for {:d} movements'.format(feat_size.shape[0]))
+    # plt.title('Normalized aperture endpoint for {:d} movements'.format(feat_size.shape[0]))
     plt.boxplot([final_pos['S'][0], final_pos['M'][0], final_pos['L'][0]])
     plt.xticks([1,2,3],['S','M','L'])
     plt.xlabel('Object size')
@@ -857,7 +860,7 @@ def norm_movement_ends(features, feat_size):
     plt.close()
 
     plt.figure()
-    plt.title('Normalized y-wrist endpoint for {:d} movements'.format(feat_size.shape[0]))
+    # plt.title('Normalized y-wrist endpoint for {:d} movements'.format(feat_size.shape[0]))
     plt.boxplot([final_pos['S'][1], final_pos['M'][1], final_pos['L'][1]])
     plt.xticks([1,2,3],['S','M','L'])
     plt.xlabel('Object size')

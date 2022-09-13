@@ -1,4 +1,5 @@
 import os
+from statistics import mean
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '1'
 os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 
@@ -193,9 +194,9 @@ class Discriminator():
         return loss
     
     def train(self, dataset):
-        loss = 0.0
+        # loss = 0.0
         pure_losses = []
-        total_train_size = sum([el[0].shape[0] for el in list(dataset.as_numpy_iterator())])
+        # total_train_size = sum([el[0].shape[0] for el in list(dataset.as_numpy_iterator())])
         for _, (generated_states_batch, generated_actions_batch, expert_states_batch, expert_actions_batch) in enumerate(dataset):
             with tf.GradientTape() as disc_tape:
                 score1 = self.model([generated_states_batch, generated_actions_batch], training=True)
@@ -211,7 +212,7 @@ class Discriminator():
                 disc_loss = self.__disc_loss(score1, score2)
             
             if save_loss:
-                loss += tf.get_static_value(disc_loss) * generated_states_batch.shape[0]
+                # loss += tf.get_static_value(disc_loss) * generated_states_batch.shape[0]
                 pure_losses.append(tf.get_static_value(disc_loss).item())
             gradients_of_discriminator = disc_tape.gradient(disc_loss, self.model.trainable_weights)
             self.disc_optimizer.apply_gradients(zip(gradients_of_discriminator, self.model.trainable_weights))
@@ -221,11 +222,11 @@ class Discriminator():
             #     weights = [np.clip(w, -0.01, 0.01) for w in weights]
             #     l.set_weights(weights)
         
-        episode_loss = loss / total_train_size
-        episode_loss = episode_loss.item()
+        # episode_loss = loss / total_train_size
+        # episode_loss = episode_loss.item()
         pure_losses = np.array(pure_losses, dtype=np.float32)
 
-        return episode_loss, pure_losses.std()
+        return pure_losses.mean(), pure_losses.std()
 
 class Posterior():
     def __init__(self, state_dims, action_dims, code_dims):
@@ -261,9 +262,9 @@ class Posterior():
         return loss
     
     def train(self, dataset):
-        loss = 0.0
+        # loss = 0.0
         pure_losses = []
-        total_train_size = sum([el[0].shape[0] for el in list(dataset.as_numpy_iterator())])
+        # total_train_size = sum([el[0].shape[0] for el in list(dataset.as_numpy_iterator())])
         for _, (states_batch, actions_batch, codes_batch) in enumerate(dataset):
             with tf.GradientTape() as post_tape:
                 prob = self.model([states_batch, actions_batch], training=True)
@@ -271,13 +272,13 @@ class Posterior():
                 post_loss = self.__post_loss(prob, codes_batch)
             
             if save_loss:
-                loss += tf.get_static_value(post_loss) * states_batch.shape[0]
+                # loss += tf.get_static_value(post_loss) * states_batch.shape[0]
                 pure_losses.append(tf.get_static_value(post_loss).item())
             gradients_of_posterior = post_tape.gradient(post_loss, self.model.trainable_weights)
             self.posterior_optimizer.apply_gradients(zip(gradients_of_posterior, self.model.trainable_weights))
         
-        episode_loss = loss / total_train_size
-        episode_loss = episode_loss.item()
+        # episode_loss = loss / total_train_size
+        # episode_loss = episode_loss.item()
         pure_losses = np.array(pure_losses, dtype=np.float32)
 
         # set posterior target weights
@@ -287,7 +288,7 @@ class Posterior():
             posterior_target_weights[i] = 0.5 * posterior_weights[i] + 0.5 * posterior_target_weights[i]
             self.target_model.set_weights(posterior_target_weights)
 
-        return episode_loss, pure_losses.std()
+        return pure_losses.mean(), pure_losses.std()
     
     def validate(self, dataset):
         loss = 0.0

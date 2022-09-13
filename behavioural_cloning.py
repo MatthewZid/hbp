@@ -79,13 +79,13 @@ def train(train_states, train_actions, train_codes, val_states, val_actions, val
     mse = tf.keras.losses.MeanSquaredError()
 
     epochs = EPOCHS
-    total_train_size = sum([el[0].shape[0] for el in list(train_data.as_numpy_iterator())])
+    # total_train_size = sum([el[0].shape[0] for el in list(train_data.as_numpy_iterator())])
     total_val_size = sum([el[0].shape[0] for el in list(val_data.as_numpy_iterator())])
     result_train = []
     result_train_std = []
     result_val = []
     for epoch in trange(epochs, desc='Epoch'):
-        loss = 0.0
+        # loss = 0.0
         pure_train_losses = []
         for _, (states_batch, actions_batch, codes_batch) in enumerate(train_data):
             with tf.GradientTape() as gen_tape:
@@ -95,13 +95,13 @@ def train(train_states, train_actions, train_codes, val_states, val_actions, val
             policy_gradients = gen_tape.gradient(gen_loss, generator.trainable_weights)
             gen_optimizer.apply_gradients(zip(policy_gradients, generator.trainable_weights))
 
-            loss += tf.get_static_value(gen_loss) * states_batch.shape[0]
+            # loss += tf.get_static_value(gen_loss) * states_batch.shape[0]
             pure_train_losses.append(tf.get_static_value(gen_loss))
         
-        epoch_loss = loss / total_train_size
+        # epoch_loss = loss / total_train_size
         pure_train_losses = np.array(pure_train_losses, dtype=np.float32)
         result_train_std.append(pure_train_losses.std())
-        result_train.append(epoch_loss)
+        result_train.append(pure_train_losses.mean())
 
         loss = 0.0
         for _, (states_batch, actions_batch, codes_batch) in enumerate(val_data):
