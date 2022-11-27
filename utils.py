@@ -585,7 +585,8 @@ def extract_norm_apertures_wrist_mdp(dataset):
         #     if nans[-1] == (len(dataset[key]['apertures'])-1) or nans[0] == 0: continue
         #     dataset[key] = dataset[key].interpolate(method='linear', axis=0)
         # new_dataset[key] = dataset[key].copy()
-        if key[OBJ_SIZE_POS] == 'M': continue
+        participant = key.split('_')[0]
+        if key[OBJ_SIZE_POS] == 'M' or participant == 'CXF' or participant == 'MXV': continue
         new_dataset[key] = dataset[key].interpolate(method='linear', axis=0)
     
     obj_size = {'S': [], 'L': []}
@@ -738,7 +739,8 @@ def plot_interp_expert(dataset):
     interp_flags = []
 
     for key in dataset.keys():
-        if key[OBJ_SIZE_POS] == 'M': continue
+        participant = key.split('_')[0]
+        if key[OBJ_SIZE_POS] == 'M' or participant == 'CXF' or participant == 'MXV': continue
         nans = np.isnan(dataset[key]['apertures'].to_numpy())
         dataset[key] = dataset[key].interpolate(method='linear', axis=0)
 

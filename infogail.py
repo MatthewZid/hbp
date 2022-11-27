@@ -538,6 +538,7 @@ class InfoGAIL():
 
             part_start_pos = np.array(part_start_pos, dtype=np.float64)
             part_feat_size = np.array(part_feat_size, dtype=int)
+            part_start_codes = np.array(part_start_codes, dtype=np.float64)
 
             # trajectory generation
             starting_pos_code_pairs = list(zip(part_start_codes, part_start_pos, part_feat_size))
@@ -641,9 +642,9 @@ class InfoGAIL():
         if plot_gen_traj:
             # plot generated trajectories
             bestdf = pd.DataFrame({
-                'x': pd.Series(total_best[:, 0], dtype=float),
-                'y': pd.Series(total_best[:, 1], dtype=float),
-                'a': pd.Series(total_best[:, 2], dtype=float),
+                # 'x': pd.Series(total_best[:, 0], dtype=float),
+                # 'y': pd.Series(total_best[:, 1], dtype=float),
+                'a': pd.Series(total_best[:, -1], dtype=float),
                 'c': pd.Series(np.argmax(features['codes'], axis=1), dtype=int),
                 't': pd.Series(features['norm_time'], dtype=float)
             })
@@ -664,20 +665,20 @@ class InfoGAIL():
         
         if plot_comp:
             # plot generated and expert trajectories
-            min_ylim = features['states'][:, 2].min() - 0.5
-            max_ylim = features['states'][:, 2].max() + 0.5
+            min_ylim = features['states'][:, -1].min() - 0.5
+            max_ylim = features['states'][:, -1].max() + 0.5
             expertdf = pd.DataFrame({
-                'x': pd.Series(features['states'][:, 0], dtype=float),
-                'y': pd.Series(features['states'][:, 1], dtype=float),
-                'a': pd.Series(features['states'][:, 2], dtype=float),
+                # 'x': pd.Series(features['states'][:, 0], dtype=float),
+                # 'y': pd.Series(features['states'][:, 1], dtype=float),
+                'a': pd.Series(features['states'][:, -1], dtype=float),
                 'c': pd.Series(np.argmax(features['codes'], axis=1), dtype=int),
                 't': pd.Series(features['norm_time'], dtype=float)
             })
 
             bestdf = pd.DataFrame({
-                'x': pd.Series(total_best[:, 0], dtype=float),
-                'y': pd.Series(total_best[:, 1], dtype=float),
-                'a': pd.Series(total_best[:, 2], dtype=float)
+                # 'x': pd.Series(total_best[:, 0], dtype=float),
+                # 'y': pd.Series(total_best[:, 1], dtype=float),
+                'a': pd.Series(total_best[:, -1], dtype=float)
             })
 
             for i in range(features['codes'].shape[1]):

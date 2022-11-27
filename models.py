@@ -21,8 +21,8 @@ class Generator():
         self.epsilon = epsilon
         self.max_kl = max_kl
         self.model = self.create_generator()
-        # self.old_model = self.create_generator()
-        self.old_model = clone_model(self.model)
+        self.old_model = self.create_generator()
+        # self.old_model = clone_model(self.model)
     
     def create_generator(self):
         # initializer = tf.keras.initializers.GlorotNormal()
